@@ -135,7 +135,7 @@ async function main() {
 
   program
     .command('refresh')
-    .description('Refresh usage from backend-api/wham endpoint')
+    .description('Refresh usage and account status from backend-api/wham endpoint')
     .option('--all', 'Refresh all accounts')
     .option('--account <id-or-label>', 'Refresh specific account by id or label')
     .action(async (options: { all?: boolean; account?: string }) => {

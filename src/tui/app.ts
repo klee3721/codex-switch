@@ -1,4 +1,5 @@
 import blessed from 'blessed'
+import { isUnusableAccountUsage } from '../core/account-health'
 import {
   addAccount,
   ensureCurrentCodexLinked,
@@ -63,6 +64,10 @@ function toneToColor(tone: Tone) {
 function displayName(account: Account | null | undefined) {
   if (!account) return 'none'
   return account.email ?? account.label
+}
+
+function isSwitchBlocked(usage: Account['usage']) {
+  return isUnusableAccountUsage(usage) || usage.status === 'relogin_required'
 }
 
 function renderBar(percent: number | null, color: string, width: number) {
@@ -225,6 +230,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     bottom: 3,
     border: 'line',
     label: ' Accounts ',
+    tags: true,
     keys: true,
     mouse: true,
     vi: true,
@@ -297,13 +303,25 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
 
     const active = getActiveAccount(state)
     const activeLabel = displayName(active)
+    const activeColor = active && isSwitchBlocked(active.usage) ? 'red' : 'green'
     header.setContent(
-      ` {bold}codex-switch{/bold}   Active: {green-fg}${activeLabel}{/green-fg}   Accounts: ${state.accounts.length} `
+      ` {bold}codex-switch{/bold}   Active: {${activeColor}-fg}${activeLabel}{/${activeColor}-fg}   Accounts: ${state.accounts.length} `
     )
 
     const listItems = state.accounts.map((account) => {
       const isActive = active?.id === account.id
       const activePrefix = isActive ? '●' : '○'
+      const activeTag = isActive ? ' {bold}{green-fg}[active]{/green-fg}{/bold}' : ''
+      const isDead = isUnusableAccountUsage(account.usage)
+      if (isDead) {
+        return `{red-fg}${activePrefix} ${displayName(account)}${activeTag} [dead]{/red-fg}`
+      }
+      if (account.usage.status === 'relogin_required') {
+        return `{red-fg}${activePrefix} ${displayName(account)}${activeTag} [needs-login]{/red-fg}`
+      }
+      if (isActive) {
+        return `{green-fg}${activePrefix} ${displayName(account)}${activeTag}{/green-fg}`
+      }
       return `${activePrefix} ${displayName(account)}`
     })
 
@@ -321,6 +339,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
       )
     } else {
       const healthColor = colorForHealth(selected.usage.status)
+      const isDead = isUnusableAccountUsage(selected.usage)
       const five = selected.usage.last5Hours
       const weekly = selected.usage.weekly
       const usagePaneWidth =
@@ -334,6 +353,12 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
         `Plan: ${selected.usage.planType ?? 'unknown'}`,
         `Updated: ${formatUpdated(selected.usage.updatedAt)}`,
         selected.usage.error ? `Error: {red-fg}${selected.usage.error}{/red-fg}` : 'Error: none',
+        isDead
+          ? '{red-fg}This account is deleted/deactivated and cannot be used anymore. Remove it with D.{/red-fg}'
+          : '',
+        selected.usage.status === 'relogin_required'
+          ? '{red-fg}This account cannot be used until login is refreshed. Re-add/login this account again.{/red-fg}'
+          : '',
         '',
         '{bold}5-hour window{/bold}',
         `${renderBar(five.remainingPercent, 'yellow', usageBarWidth)}`,
@@ -438,6 +463,16 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
       refreshView()
       return
     }
+    if (isUnusableAccountUsage(account.usage)) {
+      setStatus(`"${displayName(account)}" is deleted/deactivated and cannot be used anymore.`, 'error')
+      refreshView()
+      return
+    }
+    if (account.usage.status === 'relogin_required') {
+      setStatus(`"${displayName(account)}" cannot be used until you re-login this account.`, 'error')
+      refreshView()
+      return
+    }
 
     await runBusy(`Switching to ${displayName(account)}…`, async () => {
       const result = await useAccount(account.id)
@@ -445,7 +480,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
 
       if (result.switchResult.codexStatusExitCode === 0 && !result.warning) {
         setStatus(`Switched to "${displayName(result.account)}".`, 'success')
-      } else if (result.switchResult.codexStatusExitCode === 0 && result.warning) {
+      } else if (result.warning) {
         setStatus(`Switched to "${displayName(result.account)}" with warning: ${result.warning}`, 'warn')
       } else {
         const reason = (result.switchResult.codexStatusStderr || result.switchResult.codexStatusStdout).trim()
@@ -462,14 +497,14 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
       return
     }
 
-    await runBusy(`Refreshing usage for ${displayName(account)}…`, async () => {
+    await runBusy(`Refreshing usage/account status for ${displayName(account)}…`, async () => {
       const result = await refreshUsage({ accountId: account.id })
       const refreshed = result.updated.find((entry) => entry.id === account.id)
       if (refreshed?.usage.status === 'ok') {
-        setStatus(`Usage refreshed for "${displayName(account)}".`, 'success')
+        setStatus(`Usage/account status refreshed for "${displayName(account)}".`, 'success')
       } else {
         setStatus(
-          `Usage refresh finished with ${refreshed?.usage.status ?? 'unknown'} state for "${displayName(account)}".`,
+          `Refresh finished with ${refreshed?.usage.status ?? 'unknown'} state for "${displayName(account)}".`,
           'warn'
         )
       }
@@ -516,7 +551,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     void refreshUsage({ accountId: active.id })
       .then(async () => {
         await syncState()
-        setStatus(`Auto-refreshed usage for ${displayName(active)}.`, 'info')
+        setStatus(`Auto-refreshed usage/account status for ${displayName(active)}.`, 'info')
         refreshView()
       })
       .catch((error) => {

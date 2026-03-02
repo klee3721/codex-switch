@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { isBlockedAccountMessage } from './account-health'
 import { extractAuthTokens, needsRefresh, readAuthFile, refreshTokens, validateChatGptAuth } from './codex-auth'
 import type { AuthTokens, UsageApiResponse, UsageApiWindow, UsageSnapshot, UsageWindow } from './types'
 
@@ -122,11 +123,18 @@ async function fetchUsage(tokens: AuthTokens, usageUrl: string): Promise<UsageAp
     })
 
     if (response.status === 401 || response.status === 403) {
+      const body = await response.text()
+      if (isBlockedAccountMessage(body)) {
+        throw new UsageFetchError('request_failed', `Account unavailable: ${body.slice(0, 240)}`)
+      }
       throw new UsageFetchError('relogin_required', 'ChatGPT token expired or invalid. Re-login is required.')
     }
 
     if (!response.ok) {
       const body = await response.text()
+      if (isBlockedAccountMessage(body)) {
+        throw new UsageFetchError('request_failed', `Account unavailable: ${body.slice(0, 240)}`)
+      }
       throw new UsageFetchError('request_failed', `Usage API returned ${response.status}: ${body.slice(0, 240)}`)
     }
 
@@ -179,7 +187,7 @@ export async function fetchUsageForProfile(profileDir: string): Promise<UsageSna
   }
 
   return {
-    source: 'undocumented_wham_usage',
+    source: 'wham_usage',
     planType: typeof usage.plan_type === 'string' ? usage.plan_type : null,
     status: 'ok',
     error: null,

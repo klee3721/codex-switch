@@ -8,7 +8,7 @@ export type UsageWindow = {
 }
 
 export type UsageSnapshot = {
-  source: 'undocumented_wham_usage' | 'codex_session_logs'
+  source: 'wham_usage' | 'codex_session_logs'
   planType: string | null
   status: UsageHealth
   error: string | null

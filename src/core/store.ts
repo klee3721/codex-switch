@@ -33,7 +33,7 @@ export function buildEmptyUsageWindow(): UsageWindow {
 
 export function buildEmptyUsageSnapshot(): UsageSnapshot {
   return {
-    source: 'undocumented_wham_usage',
+    source: 'wham_usage',
     planType: null,
     status: 'never',
     error: null,
@@ -84,7 +84,7 @@ function sanitizeState(raw: unknown): AppState {
               ? usage.status
               : 'never'
           const source: UsageSnapshot['source'] =
-            usage?.source === 'codex_session_logs' ? 'codex_session_logs' : 'undocumented_wham_usage'
+            usage?.source === 'codex_session_logs' ? 'codex_session_logs' : 'wham_usage'
 
           return {
             id: typeof account.id === 'string' ? account.id : `account-${Math.random().toString(36).slice(2, 8)}`,

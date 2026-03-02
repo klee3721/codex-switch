@@ -10,10 +10,9 @@ Terminal-first account switcher for Codex CLI with ChatGPT login profiles and us
 - Auto-link the currently logged-in Codex account from `~/.codex/auth.json`.
 - Show account email from `id_token` when available.
 
-## Important caveat
-`codex-switch` fetches limits from an undocumented backend endpoint (`/wham/usage` or `/api/codex/usage`).
-This can break if OpenAI changes backend behavior. The app marks data as stale/error when this happens.
-When live usage calls fail, `codex-switch` falls back to latest local Codex session rate-limit snapshots.
+## Usage data behavior
+`codex-switch` fetches limits from backend usage endpoints (`/wham/usage` or `/api/codex/usage`).
+If a live usage call fails, the app marks data as stale/error and falls back to latest local Codex session rate-limit snapshots.
 
 ## Requirements
 - macOS
@@ -58,10 +57,11 @@ bun run src/cli.ts doctor
 - `A` add account
 - `D` remove selected account
 - `Enter` switch to selected account
-- `R` refresh selected account usage
+- `R` refresh selected account usage and account status checks
 - `Q` quit
 
 ## Troubleshooting
 - `401/403` or `relogin_required`: run add/login flow again for that account.
 - `stale` usage: backend endpoint failed; try `refresh` or re-login.
+- `error` with unsupported/deactivated wording: account is blocked; re-login may not fix it.
 - `codex` check fails after switch: run `codex login status` directly to inspect your local setup.
