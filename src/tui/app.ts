@@ -13,7 +13,6 @@ import {
 import { runDoctor } from "../core/doctor";
 import type { Account, AppState, SortMode, UsageHealth } from "../core/types";
 import {
-  compactUsageText,
   dynamicBarColor,
   inlineUsageBadge,
   nextSortMode,
@@ -28,12 +27,13 @@ type Tone = "info" | "success" | "warn" | "error";
 const AUTO_REFRESH_MS = 60_000;
 const ACCOUNTS_LIST_MIN_HEIGHT = 5;
 const ACCOUNTS_LIST_MAX_HEIGHT_PCT = 0.55;
+const NARROW_LIST_BREAKPOINT = 108;
+const STACKED_DETAILS_BREAKPOINT = 96;
+const MIN_RECOMMENDED_TERMINAL_WIDTH = 92;
+const MIN_RECOMMENDED_TERMINAL_HEIGHT = 24;
 
-const ASCII_LOGO = [
-  "{bold}{cyan-fg}┌─────────────────────────────────┐{/cyan-fg}{/bold}",
-  "{bold}{cyan-fg}│{/cyan-fg}  ⚡ {white-fg}C O D E X   S W I T C H{/white-fg}  {cyan-fg}│{/cyan-fg}{/bold}",
-  "{bold}{cyan-fg}└─────────────────────────────────┘{/cyan-fg}{/bold}",
-].join("\n");
+const ASCII_LOGO_LINE =
+  "{bold}{cyan-fg}⚡{/cyan-fg} {white-fg}C O D E X   S W I T C H{/white-fg}{/bold}";
 
 function percentText(value: number | null) {
   return value == null ? "n/a" : `${value.toFixed(0)}%`;
@@ -79,6 +79,26 @@ function displayName(account: Account | null | undefined) {
   return account.email ?? account.label;
 }
 
+function stripTags(text: string) {
+  return text.replace(/\{[^}]*\}/g, "");
+}
+
+function visibleLength(text: string) {
+  return stripTags(text).length;
+}
+
+function truncatePlain(text: string, maxLength: number) {
+  if (maxLength <= 0) return "";
+  if (text.length <= maxLength) return text;
+  if (maxLength <= 1) return "…";
+  return `${text.slice(0, maxLength - 1)}…`;
+}
+
+function padTagged(text: string, targetLength: number) {
+  const diff = targetLength - visibleLength(text);
+  return diff > 0 ? text + " ".repeat(diff) : text;
+}
+
 function isSwitchBlocked(usage: Account["usage"]) {
   return isUnusableAccountUsage(usage) || usage.status === "relogin_required";
 }
@@ -113,8 +133,28 @@ function renderGradientBar(remainingPercent: number | null, width: number) {
   return `${left}${right}`;
 }
 
+function refreshSummary(account: Account) {
+  const status = account.usage.status;
+  if (isUnusableAccountUsage(account.usage)) {
+    return "{red-fg}Remove or replace this account{/red-fg}";
+  }
+  if (status === "relogin_required") {
+    return "{yellow-fg}Re-add this account before switching{/yellow-fg}";
+  }
+  if (status === "stale") {
+    return "{yellow-fg}Refresh usage before relying on these numbers{/yellow-fg}";
+  }
+  if (status === "error") {
+    return "{yellow-fg}Inspect the error below before switching{/yellow-fg}";
+  }
+  return "{green-fg}Ready to switch{/green-fg}";
+}
+
+const HEADER_HEIGHT = 3;
+const FOOTER_HEIGHT = 5;
+
 function computeAccountsListHeight(accountCount: number, screenHeight: number) {
-  const availableHeight = screenHeight - 5 - 3; // header + footer
+  const availableHeight = screenHeight - HEADER_HEIGHT - FOOTER_HEIGHT;
   const maxHeight = Math.floor(availableHeight * ACCOUNTS_LIST_MAX_HEIGHT_PCT);
   // +2 for border
   const desired = Math.max(ACCOUNTS_LIST_MIN_HEIGHT, accountCount + 2);
@@ -293,13 +333,13 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     fullUnicode: true,
   });
 
-  // ── Header ──────────────────────────────────────────────
+  // ── Header (compact single-line title bar) ─────────────
   const header = blessed.box({
     parent: screen,
     top: 0,
     left: 0,
     width: "100%",
-    height: 5,
+    height: HEADER_HEIGHT,
     tags: true,
     border: "line",
     style: {
@@ -309,7 +349,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     },
   });
 
-  // ── Accounts list (full-width, top) ─────────────────────
+  // ── Accounts list (full-width) ─────────────────────────
   const initialListHeight = computeAccountsListHeight(
     state.accounts.length,
     typeof screen.height === "number" ? screen.height : 35
@@ -317,7 +357,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
 
   const accountsList = blessed.list({
     parent: screen,
-    top: 5,
+    top: HEADER_HEIGHT,
     left: 0,
     width: "100%",
     height: initialListHeight,
@@ -344,13 +384,13 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     },
   });
 
-  // ── Detail pane (full-width, bottom) ────────────────────
+  // ── Detail pane (full-width, fills middle) ─────────────
   const details = blessed.box({
     parent: screen,
-    top: 5 + initialListHeight,
+    top: HEADER_HEIGHT + initialListHeight,
     left: 0,
     right: 0,
-    bottom: 3,
+    bottom: FOOTER_HEIGHT,
     border: "line",
     label: " Usage Details ",
     tags: true,
@@ -366,13 +406,13 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     },
   });
 
-  // ── Footer ──────────────────────────────────────────────
+  // ── Footer (status + context + keybindings) ────────────
   const footer = blessed.box({
     parent: screen,
     bottom: 0,
     left: 0,
     width: "100%",
-    height: 3,
+    height: FOOTER_HEIGHT,
     border: "line",
     tags: true,
     style: {
@@ -435,8 +475,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     const countText = `${state.accounts.length} account${state.accounts.length !== 1 ? "s" : ""}`;
 
     header.setContent(
-      ` ${ASCII_LOGO.split("\n")[1] ?? ""}\n` +
-        ` Active: {${activeColor}-fg}{bold}${activeLabel}{/bold}{/${activeColor}-fg}  │  ${countText}  │  Sort: {cyan-fg}${sortModeLabel(sortMode)}{/cyan-fg}${filterText ? `  │  Filter: {yellow-fg}${filterText}{/yellow-fg}` : ""}`
+      ` ${ASCII_LOGO_LINE}  {gray-fg}│{/gray-fg}  Active: {${activeColor}-fg}{bold}${activeLabel}{/bold}{/${activeColor}-fg}  {gray-fg}│{/gray-fg}  ${countText}  {gray-fg}│{/gray-fg}  Sort: {cyan-fg}${sortModeLabel(sortMode)}{/cyan-fg}${filterText ? `  {gray-fg}│{/gray-fg}  Filter: {yellow-fg}${filterText}{/yellow-fg}` : ""}`
     );
   }
 
@@ -451,7 +490,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
       terminalHeight
     );
     accountsList.height = listHeight;
-    details.top = 5 + listHeight;
+    details.top = HEADER_HEIGHT + listHeight;
 
     const terminalWidth = typeof screen.width === "number" ? screen.width : 120;
     // Available content width = terminal - 2 (border) - 2 (padding)
@@ -459,37 +498,59 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
 
     const listItems = displayAccounts.map((account) => {
       const isActive = active?.id === account.id;
-      const activePrefix = isActive ? "● " : "○ ";
+      const activePrefix = isActive ? "●" : "○";
       const badge = inlineUsageBadge(account);
-      const usageInfo = compactUsageText(account);
       const isDead = isUnusableAccountUsage(account.usage);
       const name = displayName(account);
+      const remaining = account.usage.last5Hours.remainingPercent;
+      const remainingColor = dynamicBarColor(remaining);
+      const remainingText =
+        remaining == null
+          ? "{gray-fg}n/a{/gray-fg}"
+          : `{${remainingColor}-fg}${remaining.toFixed(0)}%{/${remainingColor}-fg}`;
+      const used5h = account.usage.last5Hours.usedPercent;
+      const usedWeek = account.usage.weekly.usedPercent;
+      const updatedText = relativeTime(account.usage.updatedAt);
+      const isNarrow = contentWidth < NARROW_LIST_BREAKPOINT;
+      const maxNameLen = isNarrow
+        ? Math.max(18, contentWidth - 18)
+        : Math.max(20, Math.min(34, Math.floor(contentWidth * 0.3)));
+      const displayLabel = truncatePlain(name, maxNameLen);
+      const paddedName = padTagged(displayLabel, maxNameLen);
 
-      // Build the row: prefix + name + badge + usage info
-      // We pad the name to align badges
-      const rawNameLen = name.length;
-      const maxNameLen = Math.min(40, Math.floor(contentWidth * 0.4));
-      const paddedName =
-        rawNameLen < maxNameLen
-          ? name + " ".repeat(maxNameLen - rawNameLen)
-          : name;
+      const healthColor = colorForHealth(account.usage.status);
+      const healthTag = isDead
+        ? "{red-fg}dead{/red-fg}"
+        : account.usage.status === "relogin_required"
+          ? "{red-fg}relogin{/red-fg}"
+          : `{${healthColor}-fg}${account.usage.status}{/${healthColor}-fg}`;
+      const statusPrefixColor =
+        isDead || account.usage.status === "relogin_required"
+          ? "red"
+          : isActive
+            ? "green"
+            : "white";
 
-      const row = `${activePrefix}${paddedName} ${badge}  ${usageInfo}`;
-
-      if (isDead) {
-        return `{red-fg}${row} ✗{/red-fg}`;
+      if (isNarrow) {
+        return `{${statusPrefixColor}-fg}${activePrefix}{/${statusPrefixColor}-fg} {bold}${displayLabel}{/bold} ${badge}  ${healthTag}  {gray-fg}${updatedText}{/gray-fg}`;
       }
-      if (account.usage.status === "relogin_required") {
-        return `{red-fg}${row} ⚠{/red-fg}`;
-      }
-      if (isActive) {
-        return `{green-fg}${activePrefix}${paddedName}{/green-fg} ${badge}  ${usageInfo}`;
+
+      const planTag = account.usage.planType
+        ? `{gray-fg}${truncatePlain(account.usage.planType, 10)}{/gray-fg}`
+        : "{gray-fg}--{/gray-fg}";
+      const row = `{${statusPrefixColor}-fg}${activePrefix}{/${statusPrefixColor}-fg} ${paddedName} ${badge}  5h rem ${remainingText}  ${healthTag}  ${planTag}  {gray-fg}${updatedText}{/gray-fg}`;
+
+      if (used5h == null && usedWeek == null) {
+        return `${row}  {gray-fg}no data{/gray-fg}`;
       }
       return row;
     });
 
     accountsList.setItems(
       listItems.length > 0 ? listItems : ["  No accounts yet. Press A to add."]
+    );
+    accountsList.setLabel(
+      ` Accounts ${displayAccounts.length}/${state.accounts.length} • ${sortModeLabel(sortMode)} `
     );
 
     // Preserve selection
@@ -523,10 +584,18 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
 
     const healthColor = colorForHealth(selected.usage.status);
     const isDead = isUnusableAccountUsage(selected.usage);
+    const active = getActiveAccount(state);
+    const isActive = active?.id === selected.id;
     const five = selected.usage.last5Hours;
     const weekly = selected.usage.weekly;
     const detailsWidth =
       typeof details.width === "number" ? details.width : terminalWidth;
+    const innerWidth = Math.max(32, detailsWidth - 4);
+    const useStackedWindows = innerWidth < STACKED_DETAILS_BREAKPOINT;
+    const detailsLabel = isActive
+      ? " Usage Details • active "
+      : " Usage Details • standby ";
+    details.setLabel(detailsLabel);
 
     const statusIcon =
       selected.usage.status === "ok"
@@ -535,17 +604,19 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
           ? "✗"
           : "●";
 
-    // ── Compact header line ─────────────────────────────────
     const emailLabel = `{bold}{white-fg}${displayName(selected)}{/white-fg}{/bold}`;
+    const roleBadge = isActive
+      ? "{green-fg}[ACTIVE]{/green-fg}"
+      : "{gray-fg}[STANDBY]{/gray-fg}";
     const sourceLabel =
       selected.usage.source === "wham_usage"
         ? "{green-fg}live{/green-fg}"
         : "{yellow-fg}session log{/yellow-fg}";
-    const statusLine = `  {${healthColor}-fg}${statusIcon} ${selected.usage.status}{/${healthColor}-fg}  {gray-fg}│{/gray-fg}  ${sourceLabel}  {gray-fg}│{/gray-fg}  ${selected.usage.planType ?? "{gray-fg}unknown{/gray-fg}"}  {gray-fg}│{/gray-fg}  ${relativeTime(selected.usage.updatedAt)}`;
-
-    // ── Side-by-side usage windows ──────────────────────────
-    const halfWidth = Math.floor((detailsWidth - 8) / 2);
-    const barWidth = Math.max(12, halfWidth - 4);
+    const statusLine = `  ${roleBadge}  {${healthColor}-fg}${statusIcon} ${selected.usage.status}{/${healthColor}-fg}  {gray-fg}│{/gray-fg}  ${refreshSummary(selected)}`;
+    const metaLine = `  Source ${sourceLabel}  {gray-fg}│{/gray-fg}  Plan ${selected.usage.planType ?? "{gray-fg}unknown{/gray-fg}"}  {gray-fg}│{/gray-fg}  Updated {bold}${relativeTime(selected.usage.updatedAt)}{/bold}`;
+    const barWidth = useStackedWindows
+      ? Math.max(16, innerWidth - 6)
+      : Math.max(12, Math.floor((innerWidth - 6) / 2) - 4);
     const separator = "  {gray-fg}│{/gray-fg}  ";
 
     const fiveHeader = "{bold}5-Hour Window{/bold}";
@@ -560,19 +631,15 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     const fiveReset = `Resets: ${formatReset(five.resetAt)}`;
     const weekReset = `Resets: ${formatReset(weekly.resetAt)}`;
 
-    // Pad left column content to align the separator
-    const pad = (text: string, targetLen: number) => {
-      // Strip blessed tags to get visible length
-      const visible = text.replace(/\{[^}]*\}/g, "");
-      const diff = targetLen - visible.length;
-      return diff > 0 ? text + " ".repeat(diff) : text;
-    };
+    const renderWindowBlock = (
+      title: string,
+      bar: string,
+      stats: string,
+      reset: string
+    ) => [title, bar, stats, reset];
 
-    const colWidth = halfWidth;
+    const content: string[] = [`  ${emailLabel}`, statusLine, metaLine];
 
-    const content: string[] = [`  ${emailLabel}`, statusLine];
-
-    // Error / warning alerts
     if (selected.usage.error) {
       content.push(`  {red-fg}Error: ${selected.usage.error}{/red-fg}`);
     }
@@ -587,13 +654,46 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
       );
     }
 
-    content.push(
-      `  {gray-fg}${"─".repeat(Math.min(detailsWidth - 4, 90))}{/gray-fg}`,
-      `  ${pad(fiveHeader, colWidth)}${separator}${weekHeader}`,
-      `  ${pad(fiveBar, colWidth)}${separator}${weekBar}`,
-      `  ${pad(fiveStats, colWidth)}${separator}${weekStats}`,
-      `  ${pad(fiveReset, colWidth)}${separator}${weekReset}`
-    );
+    content.push(`  {gray-fg}${"─".repeat(Math.min(innerWidth, 90))}{/gray-fg}`);
+
+    if (useStackedWindows) {
+      for (const line of renderWindowBlock(
+        fiveHeader,
+        fiveBar,
+        fiveStats,
+        fiveReset
+      )) {
+        content.push(`  ${line}`);
+      }
+      content.push("");
+      for (const line of renderWindowBlock(
+        weekHeader,
+        weekBar,
+        weekStats,
+        weekReset
+      )) {
+        content.push(`  ${line}`);
+      }
+    } else {
+      const colWidth = Math.floor((innerWidth - 6) / 2);
+      const leftBlock = renderWindowBlock(
+        fiveHeader,
+        fiveBar,
+        fiveStats,
+        fiveReset
+      );
+      const rightBlock = renderWindowBlock(
+        weekHeader,
+        weekBar,
+        weekStats,
+        weekReset
+      );
+      for (let index = 0; index < leftBlock.length; index += 1) {
+        content.push(
+          `  ${padTagged(leftBlock[index], colWidth)}${separator}${rightBlock[index]}`
+        );
+      }
+    }
 
     details.setContent(content.join("\n"));
   }
@@ -601,9 +701,27 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
   function refreshFooter() {
     const toneColor = toneToColor(statusTone);
     const spinner = busy ? `${spinnerFrame(spinnerTick)} ` : "";
-    footer.setContent(
-      ` ${spinner}{${toneColor}-fg}${statusMessage}{/${toneColor}-fg}  │  {gray-fg}A{/gray-fg}dd  {gray-fg}D{/gray-fg}el  {gray-fg}⏎{/gray-fg}use  {gray-fg}R{/gray-fg}efr  {gray-fg}⇧R{/gray-fg}all  {gray-fg}S{/gray-fg}ort  {gray-fg}/{/gray-fg}find  {gray-fg}C{/gray-fg}opy  {gray-fg}?{/gray-fg}help  {gray-fg}Q{/gray-fg}uit`
+    const displayAccounts = getDisplayAccounts();
+    const selectedIndex = displayAccounts.findIndex(
+      (account) => account.id === selectedAccount()?.id
     );
+    const terminalWidth = typeof screen.width === "number" ? screen.width : 120;
+    const terminalHeight =
+      typeof screen.height === "number" ? screen.height : 35;
+    const sizeWarning =
+      terminalWidth < MIN_RECOMMENDED_TERMINAL_WIDTH ||
+      terminalHeight < MIN_RECOMMENDED_TERMINAL_HEIGHT
+        ? "  {yellow-fg}Tight terminal: widen for full layout{/yellow-fg}"
+        : "";
+    const statusLine = ` ${spinner}{${toneColor}-fg}${statusMessage}{/${toneColor}-fg}${sizeWarning}`;
+    const contextLine =
+      displayAccounts.length > 0
+        ? selectedIndex >= 0
+          ? ` {gray-fg}Selected{/gray-fg} ${selectedIndex + 1}/${displayAccounts.length}  {gray-fg}Focus{/gray-fg} Accounts`
+          : ` {yellow-fg}Selected account hidden by filter{/yellow-fg}`
+        : " {gray-fg}No accounts loaded{/gray-fg}";
+    const keysLine = ` {gray-fg}A{/gray-fg}dd  {gray-fg}D{/gray-fg}el  {gray-fg}⏎{/gray-fg}use  {gray-fg}R{/gray-fg}efr  {gray-fg}⇧R{/gray-fg}all  {gray-fg}S{/gray-fg}ort  {gray-fg}/{/gray-fg}find  {gray-fg}C{/gray-fg}opy  {gray-fg}?{/gray-fg}help  {gray-fg}Q{/gray-fg}uit`;
+    footer.setContent(`${statusLine}\n${contextLine}\n${keysLine}`);
   }
 
   function refreshView() {
@@ -847,18 +965,26 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
 
     const email = account.email ?? account.label;
     try {
-      const result = spawnSync("pbcopy", [], {
-        input: email,
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      if ((result.status ?? 1) === 0) {
+      const clipboardCapableScreen = screen as blessed.Widgets.Screen & {
+        copyToClipboard?: (text: string) => void;
+      };
+      if (typeof clipboardCapableScreen.copyToClipboard === "function") {
+        clipboardCapableScreen.copyToClipboard(email);
         setStatus(`Copied "${email}" to clipboard.`, "success");
       } else {
-        setStatus("pbcopy failed. macOS only.", "error");
+        const result = spawnSync("pbcopy", [], {
+          input: email,
+          encoding: "utf8",
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        if ((result.status ?? 1) === 0) {
+          setStatus(`Copied "${email}" to clipboard.`, "success");
+        } else {
+          setStatus("Clipboard copy failed in this terminal.", "error");
+        }
       }
     } catch {
-      setStatus("Copy failed. pbcopy not available.", "error");
+      setStatus("Copy failed. Clipboard integration unavailable.", "error");
     }
     refreshView();
   }
