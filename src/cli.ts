@@ -1,6 +1,16 @@
 #!/usr/bin/env bun
 import { Command } from 'commander'
 import {
+  bridgeAddAccount,
+  bridgeDoctor,
+  bridgeLinkCurrent,
+  bridgeRefresh,
+  bridgeRemoveAccount,
+  bridgeStatus,
+  bridgeUse,
+  runBridgeCommand,
+} from './bridge'
+import {
   addAccount,
   ensureCurrentCodexLinked,
   formatStateSummary,
@@ -51,8 +61,9 @@ async function main() {
   const argv = process.argv.slice(2)
   const isHelpRequest = argv.includes('--help') || argv.includes('-h') || argv[0] === 'help'
   const isTuiMode = argv.length === 0
+  const isBridgeMode = argv[0] === 'bridge'
 
-  if (!isHelpRequest && !isTuiMode) {
+  if (!isHelpRequest && !isTuiMode && !isBridgeMode) {
     await ensureCurrentCodexLinked()
   }
 
@@ -66,6 +77,78 @@ async function main() {
     .name('codex-switch')
     .description('Switch Codex ChatGPT accounts and monitor 5h/weekly usage limits')
     .showHelpAfterError()
+
+  program
+    .command('bridge')
+    .description('Machine-readable JSON bridge for the macOS status bar app')
+    .showHelpAfterError()
+    .addCommand(
+      new Command('status').description('Read cached account state as JSON').action(async () => {
+        await runBridgeCommand(() => bridgeStatus())
+      })
+    )
+    .addCommand(
+      new Command('link-current').description('Link the current Codex login and return JSON').action(async () => {
+        await runBridgeCommand(() => bridgeLinkCurrent())
+      })
+    )
+    .addCommand(
+      new Command('refresh')
+        .description('Refresh usage data and return JSON')
+        .option('--active', 'Refresh the active account only')
+        .option('--all', 'Refresh every tracked account')
+        .option('--account <id>', 'Refresh a specific account by id or label')
+        .action(async (options: { active?: boolean; all?: boolean; account?: string }) => {
+          await runBridgeCommand(() =>
+            bridgeRefresh({
+              active: options.active ?? false,
+              all: options.all ?? false,
+              accountId: options.account,
+            })
+          )
+        })
+    )
+    .addCommand(
+      new Command('use')
+        .description('Switch the active account and return JSON')
+        .requiredOption('--account <id>', 'Account id or exact label')
+        .action(async (options: { account: string }) => {
+          await runBridgeCommand(() => bridgeUse(options.account))
+        })
+    )
+    .addCommand(
+      new Command('add')
+        .description('Add a new account and return JSON')
+        .requiredOption('--label <name>', 'Account label')
+        .option('--device-auth', 'Use device-code login instead of direct browser flow', false)
+        .action(async (options: { label: string; deviceAuth?: boolean }) => {
+          await runBridgeCommand(() =>
+            bridgeAddAccount({
+              label: options.label,
+              deviceAuth: options.deviceAuth ?? false,
+            })
+          )
+        })
+    )
+    .addCommand(
+      new Command('remove')
+        .description('Remove an account and return JSON')
+        .requiredOption('--account <id>', 'Account id or exact label')
+        .option('--purge', 'Delete the account profile folder after removal', false)
+        .action(async (options: { account: string; purge?: boolean }) => {
+          await runBridgeCommand(() =>
+            bridgeRemoveAccount({
+              accountId: options.account,
+              purge: options.purge ?? false,
+            })
+          )
+        })
+    )
+    .addCommand(
+      new Command('doctor').description('Run diagnostics and return JSON').action(async () => {
+        await runBridgeCommand(() => bridgeDoctor())
+      })
+    )
 
   program
     .command('add')

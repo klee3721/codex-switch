@@ -513,20 +513,23 @@ export async function refreshUsage(options?: { accountId?: string; all?: boolean
 
   const targetIds = new Set(targets.map((entry) => entry.id))
   const updatedAccounts: Account[] = []
+  const nextAccounts: Account[] = []
 
-  const nextAccounts = await Promise.all(
-    state.accounts.map(async (account) => {
-      if (!targetIds.has(account.id)) return account
-      const usageResult = await resolveUsageSnapshot(account.profileDir)
-      const next = {
-        ...account,
-        updatedAt: Date.now(),
-        usage: usageResult.usage,
-      }
-      updatedAccounts.push(next)
-      return next
-    })
-  )
+  for (const account of state.accounts) {
+    if (!targetIds.has(account.id)) {
+      nextAccounts.push(account)
+      continue
+    }
+
+    const usageResult = await resolveUsageSnapshot(account.profileDir)
+    const next = {
+      ...account,
+      updatedAt: Date.now(),
+      usage: usageResult.usage,
+    }
+    updatedAccounts.push(next)
+    nextAccounts.push(next)
+  }
 
   const nextState = await saveState({
     activeAccountId: state.activeAccountId,

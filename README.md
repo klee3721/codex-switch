@@ -24,6 +24,7 @@ If a live usage call fails, the app marks data as stale/error and falls back to 
 cd /Users/khanhlequoc/codex-switch
 bun install
 bun run build
+bun run build:macos
 
 # interactive TUI
 bun run src/cli.ts
@@ -35,6 +36,9 @@ bun run src/cli.ts refresh
 bun run src/cli.ts use main-1234abcd
 bun run src/cli.ts remove main-1234abcd --purge
 bun run src/cli.ts doctor
+
+# macOS status bar app
+swift run --package-path apps/macos
 ```
 
 ## Commands
@@ -47,6 +51,21 @@ bun run src/cli.ts doctor
 - `codex-switch refresh [--all] [--account <id-or-label>]` : refresh usage
 - `codex-switch doctor` : environment and profile diagnostics
 - `codex-switch link-current` : explicitly sync/link current Codex auth account
+
+## macOS status bar app
+- Native SwiftUI menu bar app lives in `apps/macos/`.
+- It reuses the TypeScript core via `dist/cli.js bridge ...` instead of duplicating account logic.
+- Build the bridge first with `npm run build`, then compile or run the app with `npm run build:macos` or `swift run --package-path apps/macos`.
+- If the app cannot locate the repo root automatically, launch it with `CODEX_SWITCH_REPO_ROOT=/absolute/path/to/codex-switch`.
+
+## Bridge commands
+- `codex-switch bridge status` : cached JSON summary for the macOS app
+- `codex-switch bridge link-current` : sync current `~/.codex/auth.json` into tracked state
+- `codex-switch bridge refresh --active|--all` : refresh JSON usage state
+- `codex-switch bridge use --account <id>` : switch account and return JSON
+- `codex-switch bridge add --label <name>` : add account and return JSON
+- `codex-switch bridge remove --account <id> [--purge]` : remove account and return JSON
+- `codex-switch bridge doctor` : diagnostics report as JSON
 
 ## Storage layout
 - `~/.codex-switch/state.json` : account metadata and usage snapshots

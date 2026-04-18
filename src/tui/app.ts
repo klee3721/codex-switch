@@ -1119,7 +1119,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
   accountsList.focus();
 
   if (options?.deferCurrentLink) {
-    void runBusy("Syncing current Codex account…", async () => {
+    await runBusy("Syncing current Codex account…", async () => {
       const result = await ensureCurrentCodexLinked();
       if (result.linked && result.account) {
         selectedAccountId = result.account.id;
@@ -1133,6 +1133,19 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
       } else {
         setStatus("Current Codex account was not linked.", "warn");
       }
+    });
+  }
+
+  if (state.accounts.length > 0) {
+    await runBusy(`Refreshing all ${state.accounts.length} accounts…`, async () => {
+      const result = await refreshUsage({ all: true });
+      const okCount = result.updated.filter(
+        (account) => account.usage.status === "ok"
+      ).length;
+      setStatus(
+        `Startup refresh complete: ${result.updated.length} accounts (${okCount} ok).`,
+        "success"
+      );
     });
   }
 
