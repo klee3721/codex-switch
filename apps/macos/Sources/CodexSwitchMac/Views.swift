@@ -13,6 +13,8 @@ private enum CodexVisual {
     static let hairline = Color.primary.opacity(0.10)
     static let quietText = Color.secondary.opacity(0.86)
     static let gold = Color(red: 0.89, green: 0.58, blue: 0.28)
+    static let softYellow = Color(red: 0.88, green: 0.76, blue: 0.34)
+    static let strongYellow = Color(red: 0.94, green: 0.69, blue: 0.18)
     static let mint = Color(red: 0.28, green: 0.82, blue: 0.46)
 }
 
@@ -137,6 +139,21 @@ func statusColor(for account: BridgeAccountSummary?) -> Color {
     }
 }
 
+func usageBarColor(for remainingPercent: Double?) -> Color {
+    guard let remainingPercent else { return Color(nsColor: .tertiaryLabelColor) }
+
+    if remainingPercent < 20 {
+        return Color(nsColor: .systemRed)
+    }
+    if remainingPercent < 50 {
+        return CodexVisual.strongYellow
+    }
+    if remainingPercent < 80 {
+        return CodexVisual.softYellow
+    }
+    return Color(nsColor: .labelColor)
+}
+
 func percentString(_ value: Double?) -> String {
     guard let value else { return "n/a" }
     return value.percentText
@@ -231,7 +248,6 @@ struct CompactUsageBar: View {
 struct UsageLane: View {
     let label: String
     let percent: Double?
-    let color: Color
 
     var body: some View {
         HStack(spacing: 8) {
@@ -240,7 +256,7 @@ struct UsageLane: View {
                 .foregroundStyle(CodexVisual.quietText)
                 .frame(width: 24, alignment: .leading)
 
-            CompactUsageBar(percent: percent, color: color, height: 5)
+            CompactUsageBar(percent: percent, color: usageBarColor(for: percent), height: 5)
                 .frame(height: 5)
 
             Text(percentString(percent))
@@ -255,13 +271,12 @@ struct UsageLane: View {
 struct DualUsageView: View {
     let fiveHour: Double?
     let weekly: Double?
-    let color: Color
     var spacing: CGFloat = 7
 
     var body: some View {
         VStack(spacing: spacing) {
-            UsageLane(label: "5H", percent: fiveHour, color: color)
-            UsageLane(label: "WK", percent: weekly, color: color.opacity(0.7))
+            UsageLane(label: "5H", percent: fiveHour)
+            UsageLane(label: "WK", percent: weekly)
         }
     }
 }
@@ -329,7 +344,6 @@ struct PercentPill: View {
 struct AccountUsageMeter: View {
     let label: String
     let value: Double?
-    let color: Color
 
     var body: some View {
         HStack(spacing: 6) {
@@ -338,7 +352,7 @@ struct AccountUsageMeter: View {
                 .foregroundStyle(CodexVisual.quietText)
                 .frame(width: 20, alignment: .leading)
 
-            CompactUsageBar(percent: value, color: color, height: 4)
+            CompactUsageBar(percent: value, color: usageBarColor(for: value), height: 4)
                 .frame(width: 42, height: 4)
 
             Text(percentString(value))
@@ -356,12 +370,11 @@ struct AccountUsageMeter: View {
 struct AccountUsageStack: View {
     let fiveHour: Double?
     let weekly: Double?
-    let color: Color
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 7) {
-            AccountUsageMeter(label: "5H", value: fiveHour, color: color)
-            AccountUsageMeter(label: "WK", value: weekly, color: CodexVisual.gold)
+            AccountUsageMeter(label: "5H", value: fiveHour)
+            AccountUsageMeter(label: "WK", value: weekly)
         }
     }
 }
@@ -567,7 +580,6 @@ struct MenuHeaderView: View {
                 DualUsageView(
                     fiveHour: account?.fiveHourRemaining,
                     weekly: account?.weeklyRemaining,
-                    color: tint,
                     spacing: 9
                 )
 
@@ -705,8 +717,7 @@ struct AccountRowView: View {
 
             AccountUsageStack(
                 fiveHour: account.fiveHourRemaining,
-                weekly: account.weeklyRemaining,
-                color: tint
+                weekly: account.weeklyRemaining
             )
         }
         .padding(.horizontal, 10)

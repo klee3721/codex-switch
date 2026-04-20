@@ -36,21 +36,16 @@ final class CodexBridgeClient: @unchecked Sendable {
     init() throws {
         self.environment = Self.buildBridgeEnvironment()
 
-        let repoCommand = try? Self.resolveRepoBridge()
         if let bundledBridge = Self.resolveBundledBridge() {
             self.initialCommand = bundledBridge
-            self.fallbackCommand = repoCommand
-            return
-        }
-
-        if let repoCommand {
-            self.initialCommand = repoCommand
             self.fallbackCommand = nil
             return
         }
 
-        _ = try Self.resolveRepoRoot()
-        throw BridgeClientError.repoNotFound
+        let repoCommand = try Self.resolveRepoBridge()
+        self.initialCommand = repoCommand
+        self.fallbackCommand = nil
+
     }
 
     func fetchStatus() async throws -> BridgeStatusPayload {
