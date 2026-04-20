@@ -1,6 +1,7 @@
 import Foundation
 
 enum BridgeClientError: LocalizedError {
+    case bundledBridgeNotBuilt(URL)
     case repoNotFound
     case cliNotBuilt(URL)
     case transport(String)
@@ -8,6 +9,8 @@ enum BridgeClientError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .bundledBridgeNotBuilt(let url):
+            return "Missing bundled bridge at \(url.path). Rebuild the app bundle."
         case .repoNotFound:
             return "Unable to locate the codex-switch repository root. Set CODEX_SWITCH_REPO_ROOT before launching the macOS app."
         case .cliNotBuilt(let url):
@@ -19,43 +22,59 @@ enum BridgeClientError: LocalizedError {
 }
 
 final class CodexBridgeClient: @unchecked Sendable {
+    private struct BridgeCommand {
+        let workingDirectory: URL
+        let cliURL: URL
+        let commandPrefix: [String]
+    }
+
     private let decoder = JSONDecoder()
-    private let repoRoot: URL
-    private let cliURL: URL
+    private let initialCommand: BridgeCommand
+    private let fallbackCommand: BridgeCommand?
+    private let environment: [String: String]
 
     init() throws {
-        let repoRoot = try Self.resolveRepoRoot()
-        let cliURL = repoRoot.appendingPathComponent("dist/cli.js")
-        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            throw BridgeClientError.cliNotBuilt(cliURL)
+        self.environment = Self.buildBridgeEnvironment()
+
+        let repoCommand = try? Self.resolveRepoBridge()
+        if let bundledBridge = Self.resolveBundledBridge() {
+            self.initialCommand = bundledBridge
+            self.fallbackCommand = repoCommand
+            return
         }
 
-        self.repoRoot = repoRoot
-        self.cliURL = cliURL
+        if let repoCommand {
+            self.initialCommand = repoCommand
+            self.fallbackCommand = nil
+            return
+        }
+
+        _ = try Self.resolveRepoRoot()
+        throw BridgeClientError.repoNotFound
     }
 
     func fetchStatus() async throws -> BridgeStatusPayload {
-        try await run(["bridge", "status"], as: BridgeStatusPayload.self)
+        try await run(["status"], as: BridgeStatusPayload.self)
     }
 
     func linkCurrent() async throws -> BridgeLinkCurrentPayload {
-        try await run(["bridge", "link-current"], as: BridgeLinkCurrentPayload.self)
+        try await run(["link-current"], as: BridgeLinkCurrentPayload.self)
     }
 
     func refreshActive() async throws -> BridgeActionPayload {
-        try await run(["bridge", "refresh", "--active"], as: BridgeActionPayload.self)
+        try await run(["refresh", "--active"], as: BridgeActionPayload.self)
     }
 
     func refreshAll() async throws -> BridgeActionPayload {
-        try await run(["bridge", "refresh", "--all"], as: BridgeActionPayload.self)
+        try await run(["refresh", "--all"], as: BridgeActionPayload.self)
     }
 
     func switchAccount(id: String) async throws -> BridgeUsePayload {
-        try await run(["bridge", "use", "--account", id], as: BridgeUsePayload.self)
+        try await run(["use", "--account", id], as: BridgeUsePayload.self)
     }
 
     func addAccount(label: String, deviceAuth: Bool) async throws -> BridgeActionPayload {
-        var arguments = ["bridge", "add", "--label", label]
+        var arguments = ["add", "--label", label]
         if deviceAuth {
             arguments.append("--device-auth")
         }
@@ -63,7 +82,7 @@ final class CodexBridgeClient: @unchecked Sendable {
     }
 
     func removeAccount(id: String, purge: Bool) async throws -> BridgeActionPayload {
-        var arguments = ["bridge", "remove", "--account", id]
+        var arguments = ["remove", "--account", id]
         if purge {
             arguments.append("--purge")
         }
@@ -71,18 +90,20 @@ final class CodexBridgeClient: @unchecked Sendable {
     }
 
     func doctor() async throws -> BridgeDoctorPayload {
-        try await run(["bridge", "doctor"], as: BridgeDoctorPayload.self)
+        try await run(["doctor"], as: BridgeDoctorPayload.self)
     }
 
     private func run<Payload: Decodable & Sendable>(_ arguments: [String], as type: Payload.Type) async throws -> Payload {
-        try await withCheckedThrowingContinuation { continuation in
+        let command = Self.resolveBundledBridge() ?? fallbackCommand ?? initialCommand
+        return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let stdout = Pipe()
             let stderr = Pipe()
 
-            process.executableURL = cliURL
-            process.arguments = arguments
-            process.currentDirectoryURL = repoRoot
+            process.executableURL = command.cliURL
+            process.arguments = command.commandPrefix + arguments
+            process.currentDirectoryURL = command.workingDirectory
+            process.environment = environment
             process.standardOutput = stdout
             process.standardError = stderr
 
@@ -123,6 +144,99 @@ final class CodexBridgeClient: @unchecked Sendable {
                 continuation.resume(throwing: BridgeClientError.transport("Failed to launch bridge: \(error.localizedDescription)"))
             }
         }
+    }
+
+    private static func resolveBundledBridge() -> BridgeCommand? {
+        guard let resourcesURL = Bundle.main.resourceURL else {
+            return nil
+        }
+
+        let bridgeDirectory = resourcesURL.appendingPathComponent("bridge", isDirectory: true)
+        let cliURL = bridgeDirectory.appendingPathComponent("bridge-cli.js")
+        guard FileManager.default.fileExists(atPath: cliURL.path) else {
+            return nil
+        }
+        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            return nil
+        }
+
+        return BridgeCommand(workingDirectory: bridgeDirectory, cliURL: cliURL, commandPrefix: [])
+    }
+
+    private static func resolveRepoBridge() throws -> BridgeCommand {
+        let repoRoot = try resolveRepoRoot()
+        let cliURL = repoRoot.appendingPathComponent("dist/cli.js")
+        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            throw BridgeClientError.cliNotBuilt(cliURL)
+        }
+
+        return BridgeCommand(workingDirectory: repoRoot, cliURL: cliURL, commandPrefix: ["bridge"])
+    }
+
+    private static func buildBridgeEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
+
+        let inheritedPath = environment["PATH"] ?? ""
+        let loginShellPath = resolveLoginShellPath()
+        let commonPaths = [
+            "\(NSHomeDirectory())/.bun/bin",
+            "\(NSHomeDirectory())/.local/bin",
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ].joined(separator: ":")
+
+        environment["PATH"] = mergePathEntries([loginShellPath, inheritedPath, commonPaths])
+        return environment
+    }
+
+    private static func resolveLoginShellPath() -> String {
+        let environment = ProcessInfo.processInfo.environment
+        let shellPath = environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
+        guard FileManager.default.isExecutableFile(atPath: shellPath) else {
+            return ""
+        }
+
+        let process = Process()
+        let stdout = Pipe()
+        process.executableURL = URL(fileURLWithPath: shellPath)
+        process.arguments = ["-lc", "printf '%s' \"$PATH\""]
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return ""
+        }
+
+        guard process.terminationStatus == 0 else {
+            return ""
+        }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private static func mergePathEntries(_ pathValues: [String]) -> String {
+        var seen = Set<String>()
+        var entries: [String] = []
+
+        for pathValue in pathValues where !pathValue.isEmpty {
+            for entry in pathValue.split(separator: ":").map(String.init) where !entry.isEmpty {
+                if seen.insert(entry).inserted {
+                    entries.append(entry)
+                }
+            }
+        }
+
+        return entries.joined(separator: ":")
     }
 
     private static func resolveRepoRoot() throws -> URL {

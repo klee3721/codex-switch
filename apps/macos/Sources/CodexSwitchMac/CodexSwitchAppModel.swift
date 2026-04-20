@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-enum BannerKind {
+enum BannerKind: Equatable {
     case info
     case success
     case warning
@@ -23,6 +23,7 @@ final class CodexSwitchAppModel: ObservableObject {
     @Published private(set) var status: BridgeStatusPayload?
     @Published private(set) var doctorReport: BridgeDoctorPayload?
     @Published private(set) var currentOperation: AppOperation?
+    @Published private(set) var isRefreshingAll = false
     @Published private(set) var banner: BannerState?
     @Published var selectedAccountID: String?
     @Published var isAddAccountSheetPresented = false
@@ -72,14 +73,7 @@ final class CodexSwitchAppModel: ObservableObject {
     }
 
     func menuOpened() {
-        guard !hasBlockingOperation else { return }
-        guard let updatedAt = activeAccount?.usage.updatedAt else { return }
-        let age = Date().timeIntervalSince(dateFromMillis(updatedAt) ?? .distantPast)
-        if age >= 120 {
-            Task {
-                await refreshActive(showSuccessBanner: false, reason: "Refreshing active account…")
-            }
-        }
+        selectValidAccount()
     }
 
     func managerOpened() {
@@ -133,9 +127,6 @@ final class CodexSwitchAppModel: ObservableObject {
         guard let bridge else { return }
         guard currentOperation == nil else { return }
 
-        currentOperation = AppOperation(title: reason, subtitle: activeAccount?.displayName)
-        defer { currentOperation = nil }
-
         do {
             let result = try await bridge.refreshActive()
             applyStatus(result.state)
@@ -152,17 +143,16 @@ final class CodexSwitchAppModel: ObservableObject {
     func refreshAll() async {
         guard let bridge else { return }
         guard currentOperation == nil else { return }
+        guard !isRefreshingAll else { return }
 
-        currentOperation = AppOperation(title: "Refreshing all accounts", subtitle: nil)
-        defer { currentOperation = nil }
+        isRefreshingAll = true
+        defer { isRefreshingAll = false }
 
         do {
             let result = try await bridge.refreshAll()
             applyStatus(result.state)
             if let warning = result.warning {
                 banner = BannerState(kind: .warning, message: warning)
-            } else {
-                banner = BannerState(kind: .success, message: result.message)
             }
         } catch {
             banner = BannerState(kind: .error, message: error.localizedDescription)

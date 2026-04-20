@@ -1,43 +1,116 @@
 import AppKit
 import SwiftUI
 
-private let codexDesktopAppPath = "/Applications/Codex.app"
-private let codexDesktopIconPath = "/Applications/Codex.app/Contents/Resources/electron.icns"
+private let appGlyphBackground = Color(red: 15 / 255, green: 23 / 255, blue: 32 / 255)
+private let appGlyphForeground = Color(red: 248 / 255, green: 250 / 255, blue: 252 / 255)
+
+private enum CodexVisual {
+    static let radiusSM: CGFloat = 10
+    static let radiusMD: CGFloat = 14
+    static let radiusLG: CGFloat = 18
+
+    static let surface = Color(nsColor: .windowBackgroundColor)
+    static let hairline = Color.primary.opacity(0.10)
+    static let quietText = Color.secondary.opacity(0.86)
+    static let gold = Color(red: 0.89, green: 0.58, blue: 0.28)
+    static let mint = Color(red: 0.28, green: 0.82, blue: 0.46)
+}
+
+struct PremiumPanel<Content: View>: View {
+    var cornerRadius: CGFloat = CodexVisual.radiusMD
+    var padding: CGFloat = 14
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .padding(padding)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.primary.opacity(0.045))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(CodexVisual.hairline)
+                    )
+            )
+    }
+}
+
+struct SectionDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.primary.opacity(0.04),
+                        Color.primary.opacity(0.16),
+                        Color.primary.opacity(0.04),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(height: 1)
+    }
+}
 
 @MainActor
-func loadCodexAppIcon() -> NSImage? {
-    if FileManager.default.fileExists(atPath: codexDesktopIconPath),
-       let icon = NSImage(contentsOfFile: codexDesktopIconPath) {
-        icon.size = NSSize(width: 512, height: 512)
-        return icon
+func makeRuntimeAppIcon(size: CGFloat = 512) -> NSImage? {
+    let renderer = ImageRenderer(content:
+        AppGlyph(size: size)
+            .padding(size * 0.08)
+    )
+    renderer.scale = 2
+    if let image = renderer.nsImage {
+        image.size = NSSize(width: size, height: size)
+        return image
     }
+    return nil
+}
 
-    guard FileManager.default.fileExists(atPath: codexDesktopAppPath) else {
-        return nil
+struct AppGlyphMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        let scaleX = rect.width / 1024
+        let scaleY = rect.height / 1024
+
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * scaleX, y: rect.minY + y * scaleY)
+        }
+
+        return Path { path in
+            path.move(to: point(315, 311))
+            path.addCurve(to: point(393, 233), control1: point(315, 267.922), control2: point(349.922, 233))
+            path.addLine(to: point(545, 233))
+            path.addCurve(to: point(623, 311), control1: point(588.078, 233), control2: point(623, 267.922))
+            path.addLine(to: point(623, 357))
+            path.addCurve(to: point(545, 435), control1: point(623, 400.078), control2: point(588.078, 435))
+            path.addLine(to: point(479, 435))
+            path.addCurve(to: point(401, 513), control1: point(435.922, 435), control2: point(401, 469.922))
+            path.addLine(to: point(401, 555))
+            path.addCurve(to: point(479, 633), control1: point(401, 598.078), control2: point(435.922, 633))
+            path.addLine(to: point(631, 633))
+            path.addCurve(to: point(709, 711), control1: point(674.078, 633), control2: point(709, 667.922))
+            path.addLine(to: point(709, 713))
+            path.addCurve(to: point(631, 791), control1: point(709, 756.078), control2: point(674.078, 791))
+            path.addLine(to: point(393, 791))
+            path.addCurve(to: point(315, 713), control1: point(349.922, 791), control2: point(315, 756.078))
+            path.addLine(to: point(315, 667))
+        }
     }
-
-    let icon = NSWorkspace.shared.icon(forFile: codexDesktopAppPath)
-    icon.size = NSSize(width: 512, height: 512)
-    return icon
 }
 
 struct AppGlyph: View {
     var size: CGFloat = 13
 
     var body: some View {
-        Group {
-            if let icon = loadCodexAppIcon() {
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-            } else {
-                Image(systemName: "app")
-                    .font(.system(size: size, weight: .medium))
-                    .foregroundStyle(.primary)
-            }
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                .fill(appGlyphBackground)
+
+            AppGlyphMark()
+                .stroke(appGlyphForeground, style: StrokeStyle(lineWidth: size * 0.112, lineCap: .round, lineJoin: .round))
+                .padding(size * 0.12)
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
     }
 }
 
@@ -79,6 +152,11 @@ func relativeTimestamp(from milliseconds: Double?) -> String {
 func resetTimestamp(from seconds: Double?) -> String {
     guard let date = dateFromSeconds(seconds) else { return "n/a" }
     return date.formatted(date: .abbreviated, time: .shortened)
+}
+
+func resetDate(from seconds: Double?) -> String {
+    guard let date = dateFromSeconds(seconds) else { return "n/a" }
+    return date.formatted(date: .abbreviated, time: .omitted)
 }
 
 func timeRemaining(until seconds: Double?, now: Date) -> String {
@@ -124,11 +202,25 @@ struct CompactUsageBar: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.primary.opacity(0.08))
+                    .fill(Color.primary.opacity(0.075))
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(Color.primary.opacity(0.05))
+                    )
 
                 Capsule()
-                    .fill(color.opacity(0.85))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                color.opacity(0.72),
+                                color.opacity(0.96),
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
                     .frame(width: width * max(0, min(normalized, 1)))
+                    .shadow(color: color.opacity(0.22), radius: 6, y: 0)
             }
         }
         .frame(height: height)
@@ -144,18 +236,18 @@ struct UsageLane: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 22, alignment: .leading)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(CodexVisual.quietText)
+                .frame(width: 24, alignment: .leading)
 
             CompactUsageBar(percent: percent, color: color, height: 5)
                 .frame(height: 5)
 
             Text(percentString(percent))
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(width: 38, alignment: .trailing)
+                .foregroundStyle(.primary.opacity(0.82))
+                .frame(width: 42, alignment: .trailing)
         }
     }
 }
@@ -176,11 +268,17 @@ struct DualUsageView: View {
 
 struct StatusDot: View {
     let color: Color
+    var size: CGFloat = 8
 
     var body: some View {
         Circle()
             .fill(color)
-            .frame(width: 7, height: 7)
+            .frame(width: size, height: size)
+            .overlay(
+                Circle()
+                    .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.75)
+            )
+            .shadow(color: color.opacity(0.36), radius: 3, y: 0)
     }
 }
 
@@ -206,18 +304,93 @@ struct PercentPill: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(label)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(CodexVisual.quietText)
             Text(percentString(value))
                 .foregroundStyle(.primary)
         }
-        .font(.caption.weight(.medium))
+        .font(.system(size: 11, weight: .semibold, design: .rounded))
         .monospacedDigit()
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .lineLimit(1)
+        .minimumScaleFactor(0.86)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(minWidth: 64)
         .background(
             Capsule(style: .continuous)
-                .fill(Color.primary.opacity(0.06))
+                .fill(Color.primary.opacity(0.065))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06))
+                )
         )
+    }
+}
+
+struct AccountUsageMeter: View {
+    let label: String
+    let value: Double?
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(CodexVisual.quietText)
+                .frame(width: 20, alignment: .leading)
+
+            CompactUsageBar(percent: value, color: color, height: 4)
+                .frame(width: 42, height: 4)
+
+            Text(percentString(value))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .foregroundStyle(.primary.opacity(0.84))
+                .frame(width: 38, alignment: .trailing)
+        }
+        .frame(width: 118, alignment: .trailing)
+    }
+}
+
+struct AccountUsageStack: View {
+    let fiveHour: Double?
+    let weekly: Double?
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 7) {
+            AccountUsageMeter(label: "5H", value: fiveHour, color: color)
+            AccountUsageMeter(label: "WK", value: weekly, color: CodexVisual.gold)
+        }
+    }
+}
+
+struct IconCommandButton: View {
+    let title: String
+    let systemImage: String
+    var role: ButtonRole?
+    var isProminent = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(isProminent ? CodexVisual.gold.opacity(0.18) : Color.primary.opacity(0.055))
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .strokeBorder(isProminent ? CodexVisual.gold.opacity(0.30) : Color.primary.opacity(0.07))
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(title)
     }
 }
 
@@ -225,26 +398,40 @@ struct ManagerMetricCard: View {
     let title: String
     let value: String
     let note: String
+    var tint: Color = CodexVisual.gold
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CodexVisual.quietText)
+                Spacer()
+                Circle()
+                    .fill(tint.opacity(0.86))
+                    .frame(width: 6, height: 6)
+            }
 
             Text(value)
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
             Text(note)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(CodexVisual.quietText)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+            RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+                .overlay(
+                    RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.07))
+                )
         )
     }
 }
@@ -254,13 +441,19 @@ struct EmptyStateView: View {
     let detail: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-            Text(detail)
-                .foregroundStyle(.secondary)
+        PremiumPanel(cornerRadius: CodexVisual.radiusMD, padding: 16) {
+            VStack(alignment: .leading, spacing: 9) {
+                Image(systemName: "person.crop.circle.badge.plus")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(CodexVisual.gold)
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(CodexVisual.quietText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -270,21 +463,18 @@ struct StatusBarLabelView: View {
     var body: some View {
         let account = model.activeAccount
 
-        HStack(spacing: 4) {
-            ZStack {
-                Text(percentString(account?.fiveHourRemaining))
-                    .font(.system(size: 11, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.primary)
-                    .opacity(model.currentOperation == nil ? 1 : 0)
+        ZStack {
+            Text(percentString(account?.fiveHourRemaining))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+                .opacity(model.currentOperation == nil ? 1 : 0)
 
-                if model.currentOperation != nil {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.75)
-                }
+            if model.currentOperation != nil {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.75)
             }
-            .frame(width: 34, alignment: .trailing)
         }
         .frame(width: 38, alignment: .center)
     }
@@ -308,12 +498,24 @@ struct BannerView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            StatusDot(color: color)
+            Image(systemName: banner.kind == .error ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(color)
             Text(banner.message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(CodexVisual.quietText)
                 .lineLimit(2)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: CodexVisual.radiusSM, style: .continuous)
+                .fill(color.opacity(0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: CodexVisual.radiusSM, style: .continuous)
+                        .strokeBorder(color.opacity(0.18))
+                )
+        )
     }
 }
 
@@ -324,48 +526,72 @@ struct MenuHeaderView: View {
         let account = model.activeAccount
         let tint = statusColor(for: account)
 
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                HStack(spacing: 8) {
-                    AppGlyph(size: 13)
-                    Text(account?.displayName ?? "No active account")
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+        PremiumPanel(cornerRadius: CodexVisual.radiusLG, padding: 16) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 11) {
+                    AppGlyph(size: 24)
+                        .shadow(color: Color.black.opacity(0.20), radius: 8, y: 3)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(account?.displayName ?? "No active account")
+                            .font(.system(size: 15, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        Text(account?.subtitle ?? "Connect a Codex login")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(CodexVisual.quietText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 6) {
+                        StatusDot(color: tint, size: 7)
+                        Text(statusNote(for: account))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.primary.opacity(0.82))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(tint.opacity(0.10))
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .strokeBorder(tint.opacity(0.16))
+                            )
+                    )
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer()
-                Text(statusNote(for: account))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 96, alignment: .trailing)
-            }
+                DualUsageView(
+                    fiveHour: account?.fiveHourRemaining,
+                    weekly: account?.weeklyRemaining,
+                    color: tint,
+                    spacing: 9
+                )
 
-            DualUsageView(
-                fiveHour: account?.fiveHourRemaining,
-                weekly: account?.weeklyRemaining,
-                color: tint
-            )
+                HStack(spacing: 10) {
+                    Label("Updated \(relativeTimestamp(from: account?.usage.updatedAt))", systemImage: "clock")
+                    Spacer(minLength: 8)
+                    Text("5H \(timeRemaining(until: account?.usage.last5Hours.resetAt, now: model.now))")
+                    Text("WK \(resetDate(from: account?.usage.weekly.resetAt))")
+                }
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(CodexVisual.quietText)
 
-            HStack {
-                Text("Updated \(relativeTimestamp(from: account?.usage.updatedAt))")
-                Spacer()
-                Text("5H \(timeRemaining(until: account?.usage.last5Hours.resetAt, now: model.now))")
-                Text("WK \(timeRemaining(until: account?.usage.weekly.resetAt, now: model.now))")
-            }
-            .font(.caption)
-            .monospacedDigit()
-            .foregroundStyle(.secondary)
-
-            if let operation = model.currentOperation {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(operation.subtitle ?? operation.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                if let operation = model.currentOperation {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.76)
+                        Text(operation.subtitle ?? operation.title)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(CodexVisual.quietText)
+                            .lineLimit(1)
+                    }
+                    .padding(.top, 1)
                 }
             }
         }
@@ -382,68 +608,206 @@ struct ActionStripView: View {
     }
 
     var body: some View {
-        HStack(spacing: 16) {
-            Button("Refresh") {
+        HStack(spacing: 8) {
+            Button {
+                guard !model.isRefreshingAll, !model.hasBlockingOperation else { return }
                 Task { await model.refreshAll() }
+            } label: {
+                HStack(spacing: 6) {
+                    if model.isRefreshingAll {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.72)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    Text("Refresh")
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.primary.opacity(0.055))
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.07))
+                        )
+                )
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(model.isRefreshingAll || model.hasBlockingOperation)
+            .help("Refresh all accounts")
 
-            Button("Add") {
+            IconCommandButton(title: "Add", systemImage: "plus") {
                 model.openAddAccountFlow()
                 openManagerWindow()
             }
+            .disabled(model.hasBlockingOperation)
 
-            Button("Manage") {
+            IconCommandButton(title: "Manage", systemImage: "slider.horizontal.3", isProminent: true) {
                 openManagerWindow()
             }
 
             Spacer()
 
-            Button("Quit") {
+            IconCommandButton(title: "Quit", systemImage: "power", role: .destructive) {
                 NSApplication.shared.terminate(nil)
             }
         }
-        .buttonStyle(.plain)
-        .font(.caption)
-        .disabled(model.hasBlockingOperation)
     }
 }
 
 struct AccountRowView: View {
     let account: BridgeAccountSummary
-    let now: Date
+    @State private var isHovering = false
+
+    var body: some View {
+        let tint = statusColor(for: account)
+
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    StatusDot(color: account.isActive ? CodexVisual.mint : Color.primary.opacity(0.16), size: account.isActive ? 8 : 7)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(account.displayName)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        if let email = account.email, email != account.displayName {
+                            Text(email)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(CodexVisual.quietText)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 6) {
+                    Text(statusNote(for: account))
+                    Text("•")
+                        .foregroundStyle(Color.primary.opacity(0.24))
+                    Text(resetDate(from: account.usage.weekly.resetAt))
+                        .monospacedDigit()
+                }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CodexVisual.quietText)
+                    .lineLimit(1)
+                    .padding(.leading, account.isActive ? 18 : 17)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            AccountUsageStack(
+                fiveHour: account.fiveHourRemaining,
+                weekly: account.weeklyRemaining,
+                color: tint
+            )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
+                .fill(account.isActive ? tint.opacity(0.10) : (isHovering ? Color.primary.opacity(0.055) : Color.clear))
+                .overlay(
+                    RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
+                        .strokeBorder(account.isActive ? tint.opacity(0.18) : Color.clear)
+                )
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+    }
+}
+
+struct ManagerSidebarAccountRow: View {
+    let account: BridgeAccountSummary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                StatusDot(color: account.isActive ? .green : Color.primary.opacity(0.12))
-
+            HStack(spacing: 9) {
+                StatusDot(color: account.isActive ? CodexVisual.mint : Color.primary.opacity(0.16), size: 8)
                 Text(account.displayName)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            HStack(spacing: 6) {
+                PercentPill(label: "5H", value: account.fiveHourRemaining)
+                PercentPill(label: "WK", value: account.weeklyRemaining)
+            }
+        }
+        .padding(.vertical, 7)
+    }
+}
+
+struct DetailHeaderView: View {
+    let account: BridgeAccountSummary
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(statusColor(for: account).opacity(0.13))
+                    .frame(width: 46, height: 46)
+                AppGlyph(size: 24)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(account.displayName)
+                    .font(.system(size: 24, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                Spacer(minLength: 8)
-
-                HStack(spacing: 6) {
-                    PercentPill(label: "5H", value: account.fiveHourRemaining)
-                    PercentPill(label: "WK", value: account.weeklyRemaining)
+                HStack(spacing: 8) {
+                    StatusDot(color: account.isActive ? CodexVisual.mint : Color.primary.opacity(0.18), size: 7)
+                    Text(account.isActive ? "Active profile" : statusNote(for: account))
+                    if let email = account.email {
+                        Text("•")
+                            .foregroundStyle(Color.primary.opacity(0.24))
+                        Text(email)
+                            .truncationMode(.middle)
+                    }
                 }
+                .font(.callout.weight(.medium))
+                .foregroundStyle(CodexVisual.quietText)
+                .lineLimit(1)
             }
 
-            HStack {
-                Text(statusNote(for: account))
-                Spacer()
-                Text("5H \(timeRemaining(until: account.usage.last5Hours.resetAt, now: now))")
-                Text("•")
-                    .foregroundStyle(Color.primary.opacity(0.24))
-                Text("WK \(timeRemaining(until: account.usage.weekly.resetAt, now: now))")
-            }
-            .font(.caption2)
-            .monospacedDigit()
-            .foregroundStyle(.secondary)
+            Spacer()
         }
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
+        .padding(.bottom, 4)
+    }
+}
+
+struct DetailSection<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(CodexVisual.quietText)
+                .textCase(.uppercase)
+
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
+                .fill(Color.primary.opacity(0.035))
+                .overlay(
+                    RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.07))
+                )
+        )
     }
 }
 
@@ -453,39 +817,55 @@ struct AddAccountSheet: View {
     @State private var deviceAuth = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 8) {
-                AppGlyph(size: 14)
-                Text("Add account")
-                    .font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 11) {
+                AppGlyph(size: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Add account")
+                        .font(.title3.weight(.semibold))
+                    Text("Create a named Codex login profile.")
+                        .font(.caption)
+                        .foregroundStyle(CodexVisual.quietText)
+                }
             }
 
             TextField("Label", text: $label)
                 .textFieldStyle(.roundedBorder)
 
-            Toggle("Use device auth", isOn: $deviceAuth)
-                .toggleStyle(.switch)
+            PremiumPanel(cornerRadius: CodexVisual.radiusSM, padding: 12) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: deviceAuth ? "number.square.fill" : "safari.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(CodexVisual.gold)
 
-            Text("Browser login is preferred. Use device auth if handoff fails.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Toggle("Use device auth", isOn: $deviceAuth)
+                            .toggleStyle(.switch)
+                        Text("Browser login is preferred. Use device auth if handoff fails.")
+                            .font(.caption)
+                            .foregroundStyle(CodexVisual.quietText)
+                    }
+                }
+            }
 
             HStack {
                 Spacer()
                 Button("Cancel") {
                     model.isAddAccountSheetPresented = false
                 }
-                Button("Add") {
+                Button {
                     Task {
                         await model.addAccount(label: label, deviceAuth: deviceAuth)
                     }
+                } label: {
+                    Label("Add", systemImage: "plus")
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(model.hasBlockingOperation || label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(20)
-        .frame(width: 340)
+        .padding(22)
+        .frame(width: 380)
     }
 }
 
@@ -493,51 +873,56 @@ struct MenuContentView: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 12) {
-                MenuHeaderView()
-            }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.primary.opacity(0.04))
-            )
+        VStack(alignment: .leading, spacing: 13) {
+            MenuHeaderView()
 
-            if let banner = model.banner {
+            if let banner = model.banner, banner.kind != .success {
                 BannerView(banner: banner)
             }
 
             ActionStripView()
 
-            Rectangle()
-                .fill(Color.primary.opacity(0.08))
-                .frame(height: 1)
+            SectionDivider()
 
             if model.accounts.isEmpty {
                 EmptyStateView(title: "No accounts", detail: "Use Add to connect a Codex login.")
                     .padding(.vertical, 4)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(model.accounts.enumerated()), id: \.element.id) { index, account in
                         Button {
                             guard account.canSwitch else { return }
                             Task { await model.switchAccount(id: account.id) }
                         } label: {
-                            AccountRowView(account: account, now: model.now)
+                            AccountRowView(account: account)
                         }
                         .buttonStyle(.plain)
                         .disabled(model.hasBlockingOperation || !account.canSwitch)
 
                         if index < model.accounts.count - 1 {
-                            Divider()
+                            SectionDivider()
+                                .padding(.horizontal, 4)
                         }
                     }
                 }
             }
         }
-        .padding(18)
-        .frame(width: 360)
+        .padding(16)
+        .frame(width: 384)
         .fixedSize(horizontal: false, vertical: true)
+        .background(
+            CodexVisual.surface
+                .overlay(
+                    LinearGradient(
+                        colors: [
+                            CodexVisual.gold.opacity(0.055),
+                            Color.clear,
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .center
+                    )
+                )
+        )
         .onAppear {
             model.menuOpened()
         }
@@ -551,101 +936,93 @@ struct ManagerWindowView: View {
         NavigationSplitView {
             List(selection: $model.selectedAccountID) {
                 ForEach(model.accounts) { account in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            StatusDot(color: account.isActive ? .green : Color.primary.opacity(0.12))
-                            Text(account.displayName)
-                                .font(.headline)
-                                .lineLimit(1)
-                        }
-
-                        HStack(spacing: 8) {
-                            PercentPill(label: "5H", value: account.fiveHourRemaining)
-                            PercentPill(label: "WK", value: account.weeklyRemaining)
-                            Spacer()
-                        }
-                    }
-                    .padding(.vertical, 6)
-                    .tag(Optional(account.id))
+                    ManagerSidebarAccountRow(account: account)
+                        .tag(Optional(account.id))
                 }
             }
             .navigationTitle("Accounts")
             .navigationSplitViewColumnWidth(min: 300, ideal: 330, max: 360)
         } detail: {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let banner = model.banner {
+                        BannerView(banner: banner)
+                            .padding(.bottom, 2)
+                    }
+
                     if let account = model.selectedAccount {
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack(alignment: .center) {
-                                HStack(spacing: 8) {
-                                    StatusDot(color: account.isActive ? .green : Color.primary.opacity(0.12))
-                                    Text(account.displayName)
-                                        .font(.title2.weight(.semibold))
-                                }
-                                Spacer()
-                            }
+                        VStack(alignment: .leading, spacing: 18) {
+                            DetailHeaderView(account: account)
 
                             LazyVGrid(
                                 columns: [
-                                    GridItem(.flexible(), spacing: 10),
-                                    GridItem(.flexible(), spacing: 10),
+                                    GridItem(.flexible(), spacing: 12),
+                                    GridItem(.flexible(), spacing: 12),
                                 ],
-                                spacing: 10
+                                spacing: 12
                             ) {
                                 ManagerMetricCard(
                                     title: "5 hour",
                                     value: percentString(account.fiveHourRemaining),
-                                    note: "resets in \(timeRemaining(until: account.usage.last5Hours.resetAt, now: model.now))"
+                                    note: "resets in \(timeRemaining(until: account.usage.last5Hours.resetAt, now: model.now))",
+                                    tint: statusColor(for: account)
                                 )
                                 ManagerMetricCard(
                                     title: "Weekly",
                                     value: percentString(account.weeklyRemaining),
-                                    note: "resets in \(timeRemaining(until: account.usage.weekly.resetAt, now: model.now))"
+                                    note: resetDate(from: account.usage.weekly.resetAt),
+                                    tint: CodexVisual.gold
                                 )
                                 ManagerMetricCard(
                                     title: "Updated",
                                     value: relativeTimestamp(from: account.usage.updatedAt),
-                                    note: resetTimestamp(from: account.usage.last5Hours.resetAt)
+                                    note: resetTimestamp(from: account.usage.last5Hours.resetAt),
+                                    tint: Color(nsColor: .systemBlue)
                                 )
                                 ManagerMetricCard(
                                     title: "Plan",
                                     value: (account.usage.planType ?? "unknown").uppercased(),
-                                    note: resetTimestamp(from: account.usage.weekly.resetAt)
+                                    note: resetTimestamp(from: account.usage.weekly.resetAt),
+                                    tint: Color(nsColor: .systemPurple)
                                 )
                             }
 
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Details")
-                                    .font(.headline)
+                            DetailSection(title: "Details") {
                                 if let error = account.usage.error, !error.isEmpty {
                                     Text(error)
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(CodexVisual.quietText)
                                         .textSelection(.enabled)
                                 } else if account.usage.status != .ok {
                                     Text(statusNote(for: account))
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(CodexVisual.quietText)
                                 }
-                                Text(account.profileDir)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
+
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: "folder")
+                                        .foregroundStyle(CodexVisual.gold)
+                                    Text(account.profileDir)
+                                        .font(.caption)
+                                        .foregroundStyle(CodexVisual.quietText)
+                                        .textSelection(.enabled)
+                                        .lineLimit(2)
+                                }
                             }
 
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack(spacing: 12) {
-                                    Button(account.isActive ? "Active" : "Switch") {
+                            DetailSection(title: "Actions") {
+                                HStack(spacing: 10) {
+                                    Button {
                                         Task { await model.switchAccount(id: account.id) }
+                                    } label: {
+                                        Label(account.isActive ? "Active" : "Switch", systemImage: account.isActive ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
                                     }
                                     .disabled(model.hasBlockingOperation || !account.canSwitch || account.isActive)
 
-                                    Button("Remove", role: .destructive) {
+                                    Button(role: .destructive) {
                                         Task { await model.removeSelectedAccount() }
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
                                     }
                                     .disabled(model.hasBlockingOperation)
                                 }
@@ -664,52 +1041,57 @@ struct ManagerWindowView: View {
                         .padding(.top, 80)
                     }
 
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 12) {
+                    DetailSection(title: "Diagnostics") {
                         HStack {
-                            Text("Diagnostics")
-                                .font(.headline)
+                            Text("Codex environment")
+                                .font(.subheadline.weight(.semibold))
                             Spacer()
-                            Button("Refresh") {
+                            Button {
                                 Task { await model.loadDoctor() }
+                            } label: {
+                                Label("Refresh", systemImage: "arrow.clockwise")
                             }
                             .disabled(model.hasBlockingOperation)
                         }
 
                         if let doctor = model.doctorReport {
                             ForEach(doctor.checks) { check in
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: 5) {
                                     HStack(spacing: 8) {
-                                        StatusDot(color: check.ok ? .green : .orange)
+                                        StatusDot(color: check.ok ? CodexVisual.mint : .orange, size: 7)
                                         Text(check.name)
                                             .font(.subheadline.weight(.medium))
                                     }
                                     Text(check.details)
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(CodexVisual.quietText)
                                         .textSelection(.enabled)
                                 }
-                                .padding(.vertical, 2)
+                                .padding(.vertical, 3)
                             }
                         } else {
                             Text("Diagnostics have not been loaded yet.")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(CodexVisual.quietText)
                         }
                     }
                 }
-                .padding(18)
+                .padding(24)
             }
         }
         .frame(minWidth: 920, minHeight: 560)
         .toolbar {
             ToolbarItemGroup {
-                Button("Refresh") {
+                Button {
                     Task { await model.refreshAll() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                Button("Add") {
+
+                Button {
                     model.openAddAccountFlow()
+                } label: {
+                    Label("Add", systemImage: "plus")
                 }
             }
         }

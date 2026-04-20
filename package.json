@@ -10,7 +10,8 @@
     "dev": "bun run src/cli.ts",
     "build": "rm -rf dist && tsc --outDir dist && chmod +x dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "build:macos": "swift build --package-path apps/macos"
+    "build:macos": "swift build --package-path apps/macos",
+    "build:macos:app": "bash scripts/build-macos-app.sh"
   },
   "dependencies": {
     "blessed": "^0.1.81",

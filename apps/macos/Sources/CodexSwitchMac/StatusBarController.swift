@@ -3,6 +3,8 @@ import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject {
+    private static let itemWidth: CGFloat = 38
+
     private let statusItem: NSStatusItem
     private let popover: NSPopover
     private let model: CodexSwitchAppModel
@@ -90,11 +92,13 @@ final class StatusBarController: NSObject {
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
 
+        statusItem.length = Self.itemWidth
         button.title = ""
         button.image = nil
         button.target = self
         button.action = #selector(handleStatusItemClick(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.setAccessibilityLabel("Codex Switch")
 
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(hostingView)
@@ -131,7 +135,7 @@ final class StatusBarController: NSObject {
     private func configurePopover() {
         popover.behavior = .transient
         popover.animates = true
-        popover.contentSize = NSSize(width: 360, height: 540)
+        popover.contentSize = NSSize(width: 384, height: 560)
         popover.contentViewController = NSHostingController(
             rootView: MenuContentView().environmentObject(model)
         )

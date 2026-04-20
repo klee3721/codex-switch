@@ -12,7 +12,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "CodexSwitchMac",
-            path: "Sources/CodexSwitchMac"
+            path: "Sources/CodexSwitchMac",
+            resources: [
+                .copy("Resources"),
+            ]
         ),
     ]
 )

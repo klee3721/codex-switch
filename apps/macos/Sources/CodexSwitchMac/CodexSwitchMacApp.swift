@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
-        if let icon = loadCodexAppIcon() {
+        if let icon = makeRuntimeAppIcon() {
             NSApplication.shared.applicationIconImage = icon
         }
         statusBarController = StatusBarController(model: model)
@@ -20,7 +20,7 @@ struct CodexSwitchMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup("Codex Switch Manager", id: "manager") {
+        Window("Codex Switch Manager", id: "manager") {
             ManagerWindowView()
                 .environmentObject(appDelegate.model)
         }
