@@ -887,6 +887,7 @@ struct AddAccountSheet: View {
 struct MenuContentView: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
     var onAppear: (() -> Void)? = nil
+    private let maxAccountsListHeight: CGFloat = 352
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -904,28 +905,30 @@ struct MenuContentView: View {
                 EmptyStateView(title: "No accounts", detail: "Use Add to connect a Codex login.")
                     .padding(.vertical, 4)
             } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(model.accounts.enumerated()), id: \.element.id) { index, account in
-                        Button {
-                            guard account.canSwitch else { return }
-                            Task { await model.switchAccount(id: account.id) }
-                        } label: {
-                            AccountRowView(account: account)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(model.hasBlockingOperation || !account.canSwitch)
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(model.accounts.enumerated()), id: \.element.id) { index, account in
+                            Button {
+                                guard account.canSwitch else { return }
+                                Task { await model.switchAccount(id: account.id) }
+                            } label: {
+                                AccountRowView(account: account)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(model.hasBlockingOperation || !account.canSwitch)
 
-                        if index < model.accounts.count - 1 {
-                            SectionDivider()
-                                .padding(.horizontal, 4)
+                            if index < model.accounts.count - 1 {
+                                SectionDivider()
+                                    .padding(.horizontal, 4)
+                            }
                         }
                     }
                 }
+                .frame(maxHeight: maxAccountsListHeight, alignment: .top)
             }
         }
         .padding(16)
         .frame(width: 384)
-        .fixedSize(horizontal: false, vertical: true)
         .background(
             CodexVisual.surface
                 .overlay(

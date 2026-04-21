@@ -140,7 +140,7 @@ export async function bridgeRefresh(options?: {
   all?: boolean
   accountId?: string
 }): Promise<BridgeActionPayload> {
-  const linkResult = await ensureCurrentCodexLinked()
+  const linkResult = await ensureCurrentCodexLinked(undefined, { refreshUsage: false })
   const syncWarning = linkResult.warning
   let targetAccountId = options?.active ? undefined : options?.accountId
 

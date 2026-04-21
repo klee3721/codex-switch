@@ -95,6 +95,8 @@ final class CodexSwitchAppModel: ObservableObject {
             applyStatus(status)
             if showSuccessBanner {
                 banner = BannerState(kind: .success, message: "Status updated.")
+            } else {
+                clearNonSuccessBanner()
             }
         } catch {
             banner = BannerState(kind: .error, message: error.localizedDescription)
@@ -115,6 +117,10 @@ final class CodexSwitchAppModel: ObservableObject {
             if showBanner {
                 let kind: BannerKind = result.linked ? (result.warning == nil ? .success : .warning) : .info
                 banner = BannerState(kind: kind, message: result.warning ?? result.message)
+            } else if result.warning != nil {
+                banner = BannerState(kind: .warning, message: result.warning ?? result.message)
+            } else {
+                clearNonSuccessBanner()
             }
         } catch {
             if showBanner {
@@ -134,6 +140,8 @@ final class CodexSwitchAppModel: ObservableObject {
                 banner = BannerState(kind: .warning, message: warning)
             } else if showSuccessBanner {
                 banner = BannerState(kind: .success, message: result.message)
+            } else {
+                clearNonSuccessBanner()
             }
         } catch {
             banner = BannerState(kind: .error, message: error.localizedDescription)
@@ -153,6 +161,8 @@ final class CodexSwitchAppModel: ObservableObject {
             applyStatus(result.state)
             if let warning = result.warning {
                 banner = BannerState(kind: .warning, message: warning)
+            } else {
+                clearNonSuccessBanner()
             }
         } catch {
             banner = BannerState(kind: .error, message: error.localizedDescription)
@@ -244,6 +254,10 @@ final class CodexSwitchAppModel: ObservableObject {
                     kind: report.hasFailures ? .warning : .success,
                     message: report.hasFailures ? "Diagnostics found issues." : "Diagnostics look healthy."
                 )
+            } else if report.hasFailures {
+                banner = BannerState(kind: .warning, message: "Diagnostics found issues.")
+            } else {
+                clearNonSuccessBanner()
             }
         } catch {
             if showBanner {
@@ -263,6 +277,11 @@ final class CodexSwitchAppModel: ObservableObject {
         }
 
         selectedAccountID = status?.activeAccountId ?? accounts.first?.id
+    }
+
+    private func clearNonSuccessBanner() {
+        guard let banner, banner.kind != .success else { return }
+        self.banner = nil
     }
 
     private func startTimers() {

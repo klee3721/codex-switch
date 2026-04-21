@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusBarController = StatusBarController(model: model)
     }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
 }
 
 @main

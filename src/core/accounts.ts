@@ -59,6 +59,10 @@ export type EnsureCurrentLinkResult = {
   warning: string | null
 }
 
+export type EnsureCurrentLinkOptions = {
+  refreshUsage?: boolean
+}
+
 function slugify(value: string) {
   const normalized = value
     .toLowerCase()
@@ -278,8 +282,12 @@ export async function listState() {
   return readState()
 }
 
-export async function ensureCurrentCodexLinked(preferredLabel = CURRENT_ACCOUNT_LABEL): Promise<EnsureCurrentLinkResult> {
+export async function ensureCurrentCodexLinked(
+  preferredLabel = CURRENT_ACCOUNT_LABEL,
+  options?: EnsureCurrentLinkOptions
+): Promise<EnsureCurrentLinkResult> {
   await ensureSwitchDirs()
+  const refreshUsage = options?.refreshUsage ?? true
 
   let tokens: AuthTokens
   try {
@@ -305,13 +313,18 @@ export async function ensureCurrentCodexLinked(preferredLabel = CURRENT_ACCOUNT_
   if (matched) {
     await syncCurrentCodexFilesToProfile(matched.profileDir)
 
-    const usageResult = await resolveUsageSnapshot(matched.profileDir)
+    const usageResult = refreshUsage
+      ? await resolveUsageSnapshot(matched.profileDir)
+      : {
+          usage: matched.usage,
+          warning: null,
+        }
     const shouldPromoteLabel = matched.label === CURRENT_ACCOUNT_LABEL || matched.label === matched.email
     const nextMatched: Account = {
       ...matched,
       email: email ?? matched.email ?? null,
       label: email && shouldPromoteLabel ? email : matched.label,
-      updatedAt: Date.now(),
+      updatedAt: refreshUsage ? Date.now() : matched.updatedAt,
       usage: usageResult.usage,
     }
 
@@ -339,7 +352,12 @@ export async function ensureCurrentCodexLinked(preferredLabel = CURRENT_ACCOUNT_
 
   await syncCurrentCodexFilesToProfile(profileDir)
 
-  const usageResult = await resolveUsageSnapshot(profileDir)
+  const usageResult = refreshUsage
+    ? await resolveUsageSnapshot(profileDir)
+    : {
+        usage: buildEmptyUsageSnapshot(),
+        warning: null,
+      }
 
   const account: Account = {
     id,
@@ -512,24 +530,31 @@ export async function refreshUsage(options?: { accountId?: string; all?: boolean
       ]
 
   const targetIds = new Set(targets.map((entry) => entry.id))
+  const refreshedById = new Map(
+    await Promise.all(
+      state.accounts
+        .filter((account) => targetIds.has(account.id))
+        .map(async (account) => {
+          const usageResult = await resolveUsageSnapshot(account.profileDir)
+          const next: Account = {
+            ...account,
+            updatedAt: Date.now(),
+            usage: usageResult.usage,
+          }
+          return [account.id, next] as const
+        })
+    )
+  )
+
   const updatedAccounts: Account[] = []
-  const nextAccounts: Account[] = []
-
-  for (const account of state.accounts) {
-    if (!targetIds.has(account.id)) {
-      nextAccounts.push(account)
-      continue
+  const nextAccounts = state.accounts.map((account) => {
+    const refreshed = refreshedById.get(account.id)
+    if (!refreshed) {
+      return account
     }
-
-    const usageResult = await resolveUsageSnapshot(account.profileDir)
-    const next = {
-      ...account,
-      updatedAt: Date.now(),
-      usage: usageResult.usage,
-    }
-    updatedAccounts.push(next)
-    nextAccounts.push(next)
-  }
+    updatedAccounts.push(refreshed)
+    return refreshed
+  })
 
   const nextState = await saveState({
     activeAccountId: state.activeAccountId,

@@ -4,6 +4,7 @@ enum BridgeClientError: LocalizedError {
     case bundledBridgeNotBuilt(URL)
     case repoNotFound
     case cliNotBuilt(URL)
+    case bunNotFound
     case transport(String)
     case decoding(String)
 
@@ -15,6 +16,8 @@ enum BridgeClientError: LocalizedError {
             return "Unable to locate the codex-switch repository root. Set CODEX_SWITCH_REPO_ROOT before launching the macOS app."
         case .cliNotBuilt(let url):
             return "Missing built bridge at \(url.path). Run `npm run build` first."
+        case .bunNotFound:
+            return "Unable to locate Bun. Install Bun 1.2+ or launch the app with PATH including the Bun binary."
         case .transport(let message), .decoding(let message):
             return message
         }
@@ -24,25 +27,30 @@ enum BridgeClientError: LocalizedError {
 final class CodexBridgeClient: @unchecked Sendable {
     private struct BridgeCommand {
         let workingDirectory: URL
-        let cliURL: URL
-        let commandPrefix: [String]
+        let executableURL: URL
+        let argumentsPrefix: [String]
     }
 
     private let decoder = JSONDecoder()
     private let initialCommand: BridgeCommand
     private let fallbackCommand: BridgeCommand?
     private let environment: [String: String]
+    private let bunURL: URL
 
     init() throws {
-        self.environment = Self.buildBridgeEnvironment()
+        let environment = Self.buildBridgeEnvironment()
+        let bunURL = try Self.resolveBunExecutable(environment: environment)
 
-        if let bundledBridge = Self.resolveBundledBridge() {
+        self.environment = environment
+        self.bunURL = bunURL
+
+        if let bundledBridge = Self.resolveBundledBridge(bunURL: bunURL) {
             self.initialCommand = bundledBridge
             self.fallbackCommand = nil
             return
         }
 
-        let repoCommand = try Self.resolveRepoBridge()
+        let repoCommand = try Self.resolveRepoBridge(bunURL: bunURL)
         self.initialCommand = repoCommand
         self.fallbackCommand = nil
 
@@ -89,14 +97,14 @@ final class CodexBridgeClient: @unchecked Sendable {
     }
 
     private func run<Payload: Decodable & Sendable>(_ arguments: [String], as type: Payload.Type) async throws -> Payload {
-        let command = Self.resolveBundledBridge() ?? fallbackCommand ?? initialCommand
+        let command = Self.resolveBundledBridge(bunURL: bunURL) ?? fallbackCommand ?? initialCommand
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let stdout = Pipe()
             let stderr = Pipe()
 
-            process.executableURL = command.cliURL
-            process.arguments = command.commandPrefix + arguments
+            process.executableURL = command.executableURL
+            process.arguments = command.argumentsPrefix + arguments
             process.currentDirectoryURL = command.workingDirectory
             process.environment = environment
             process.standardOutput = stdout
@@ -141,7 +149,7 @@ final class CodexBridgeClient: @unchecked Sendable {
         }
     }
 
-    private static func resolveBundledBridge() -> BridgeCommand? {
+    private static func resolveBundledBridge(bunURL: URL) -> BridgeCommand? {
         guard let resourcesURL = Bundle.main.resourceURL else {
             return nil
         }
@@ -151,21 +159,26 @@ final class CodexBridgeClient: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: cliURL.path) else {
             return nil
         }
-        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            return nil
-        }
 
-        return BridgeCommand(workingDirectory: bridgeDirectory, cliURL: cliURL, commandPrefix: [])
+        return BridgeCommand(
+            workingDirectory: bridgeDirectory,
+            executableURL: bunURL,
+            argumentsPrefix: [cliURL.path]
+        )
     }
 
-    private static func resolveRepoBridge() throws -> BridgeCommand {
+    private static func resolveRepoBridge(bunURL: URL) throws -> BridgeCommand {
         let repoRoot = try resolveRepoRoot()
-        let cliURL = repoRoot.appendingPathComponent("dist/cli.js")
-        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+        let cliURL = repoRoot.appendingPathComponent("dist/bridge-cli.js")
+        guard FileManager.default.fileExists(atPath: cliURL.path) else {
             throw BridgeClientError.cliNotBuilt(cliURL)
         }
 
-        return BridgeCommand(workingDirectory: repoRoot, cliURL: cliURL, commandPrefix: ["bridge"])
+        return BridgeCommand(
+            workingDirectory: repoRoot,
+            executableURL: bunURL,
+            argumentsPrefix: [cliURL.path]
+        )
     }
 
     private static func buildBridgeEnvironment() -> [String: String] {
@@ -234,6 +247,20 @@ final class CodexBridgeClient: @unchecked Sendable {
         return entries.joined(separator: ":")
     }
 
+    private static func resolveBunExecutable(environment: [String: String]) throws -> URL {
+        let fileManager = FileManager.default
+        let pathValue = environment["PATH"] ?? ""
+
+        for directory in pathValue.split(separator: ":").map(String.init) where !directory.isEmpty {
+            let bunURL = URL(fileURLWithPath: directory).appendingPathComponent("bun")
+            if fileManager.isExecutableFile(atPath: bunURL.path) {
+                return bunURL
+            }
+        }
+
+        throw BridgeClientError.bunNotFound
+    }
+
     private static func resolveRepoRoot() throws -> URL {
         let fileManager = FileManager.default
         let env = ProcessInfo.processInfo.environment
@@ -282,7 +309,7 @@ final class CodexBridgeClient: @unchecked Sendable {
 
     private static func isRepoRoot(_ url: URL) -> Bool {
         let packageJSON = url.appendingPathComponent("package.json").path
-        let distCli = url.appendingPathComponent("dist/cli.js").path
-        return FileManager.default.fileExists(atPath: packageJSON) && FileManager.default.fileExists(atPath: distCli)
+        let distBridgeCLI = url.appendingPathComponent("dist/bridge-cli.js").path
+        return FileManager.default.fileExists(atPath: packageJSON) && FileManager.default.fileExists(atPath: distBridgeCLI)
     }
 }
