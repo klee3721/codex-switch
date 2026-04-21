@@ -18,6 +18,18 @@ private enum CodexVisual {
     static let mint = Color(red: 0.28, green: 0.82, blue: 0.46)
 }
 
+@MainActor
+private enum CodexFormatters {
+    static let relativeTimestamp: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
+
+    static let resetDateTime = Date.FormatStyle(date: .abbreviated, time: .shortened)
+    static let resetDate = Date.FormatStyle(date: .abbreviated, time: .omitted)
+}
+
 struct PremiumPanel<Content: View>: View {
     var cornerRadius: CGFloat = CodexVisual.radiusMD
     var padding: CGFloat = 14
@@ -159,21 +171,22 @@ func percentString(_ value: Double?) -> String {
     return value.percentText
 }
 
+@MainActor
 func relativeTimestamp(from milliseconds: Double?) -> String {
     guard let date = dateFromMillis(milliseconds) else { return "Never" }
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .short
-    return formatter.localizedString(for: date, relativeTo: Date())
+    return CodexFormatters.relativeTimestamp.localizedString(for: date, relativeTo: Date())
 }
 
+@MainActor
 func resetTimestamp(from seconds: Double?) -> String {
     guard let date = dateFromSeconds(seconds) else { return "n/a" }
-    return date.formatted(date: .abbreviated, time: .shortened)
+    return date.formatted(CodexFormatters.resetDateTime)
 }
 
+@MainActor
 func resetDate(from seconds: Double?) -> String {
     guard let date = dateFromSeconds(seconds) else { return "n/a" }
-    return date.formatted(date: .abbreviated, time: .omitted)
+    return date.formatted(CodexFormatters.resetDate)
 }
 
 func timeRemaining(until seconds: Double?, now: Date) -> String {
@@ -213,18 +226,15 @@ struct CompactUsageBar: View {
     var height: CGFloat = 6
 
     var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let normalized = CGFloat((percent ?? 0) / 100)
+        let normalized = max(0, min((percent ?? 0) / 100, 1))
 
-            ZStack(alignment: .leading) {
+        Capsule()
+            .fill(Color.primary.opacity(0.075))
+            .overlay(
                 Capsule()
-                    .fill(Color.primary.opacity(0.075))
-                    .overlay(
-                        Capsule()
-                            .strokeBorder(Color.primary.opacity(0.05))
-                    )
-
+                    .strokeBorder(Color.primary.opacity(0.05))
+            )
+            .overlay(alignment: .leading) {
                 Capsule()
                     .fill(
                         LinearGradient(
@@ -236,10 +246,8 @@ struct CompactUsageBar: View {
                             endPoint: .trailing
                         )
                     )
-                    .frame(width: width * max(0, min(normalized, 1)))
-                    .shadow(color: color.opacity(0.22), radius: 6, y: 0)
+                    .scaleEffect(x: normalized, y: 1, anchor: .leading)
             }
-        }
         .frame(height: height)
         .accessibilityLabel("Remaining five-hour usage")
     }
@@ -293,7 +301,6 @@ struct StatusDot: View {
                 Circle()
                     .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.75)
             )
-            .shadow(color: color.opacity(0.36), radius: 3, y: 0)
     }
 }
 
@@ -543,7 +550,6 @@ struct MenuHeaderView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 11) {
                     AppGlyph(size: 24)
-                        .shadow(color: Color.black.opacity(0.20), radius: 8, y: 3)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(account?.displayName ?? "No active account")
@@ -674,7 +680,6 @@ struct ActionStripView: View {
 
 struct AccountRowView: View {
     let account: BridgeAccountSummary
-    @State private var isHovering = false
 
     var body: some View {
         let tint = statusColor(for: account)
@@ -724,14 +729,13 @@ struct AccountRowView: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
-                .fill(account.isActive ? tint.opacity(0.10) : (isHovering ? Color.primary.opacity(0.055) : Color.clear))
+                .fill(account.isActive ? tint.opacity(0.10) : Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
                         .strokeBorder(account.isActive ? tint.opacity(0.18) : Color.clear)
                 )
         )
         .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
     }
 }
 
@@ -882,6 +886,7 @@ struct AddAccountSheet: View {
 
 struct MenuContentView: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
+    var onAppear: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -936,6 +941,7 @@ struct MenuContentView: View {
         )
         .onAppear {
             model.menuOpened()
+            onAppear?()
         }
     }
 }

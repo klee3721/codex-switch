@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class StatusBarController: NSObject {
+final class StatusBarController: NSObject, NSPopoverDelegate {
     private static let itemWidth: CGFloat = 38
 
     private let statusItem: NSStatusItem
@@ -10,6 +10,9 @@ final class StatusBarController: NSObject {
     private let model: CodexSwitchAppModel
     private let hostingView: NSHostingView<AnyView>
     private let statusMenu: NSMenu
+    private let performanceMonitor = MenuPerformanceMonitor()
+    private var localEventMonitor: Any?
+    private var globalEventMonitor: Any?
 
     init(model: CodexSwitchAppModel) {
         self.model = model
@@ -23,6 +26,7 @@ final class StatusBarController: NSObject {
         configureMenu()
         configureStatusItem()
         configurePopover()
+        configureEventMonitoring()
     }
 
     @objc
@@ -33,6 +37,8 @@ final class StatusBarController: NSObject {
             popover.performClose(sender)
             return
         }
+
+        performanceMonitor.markOpenRequested()
 
         let anchorRect = NSRect(
             x: button.bounds.midX - 1,
@@ -133,11 +139,82 @@ final class StatusBarController: NSObject {
     }
 
     private func configurePopover() {
-        popover.behavior = .transient
+        popover.delegate = self
+        popover.behavior = .applicationDefined
         popover.animates = true
         popover.contentSize = NSSize(width: 384, height: 560)
         popover.contentViewController = NSHostingController(
-            rootView: MenuContentView().environmentObject(model)
+            rootView: MenuContentView(
+                onAppear: { [weak self] in
+                    self?.performanceMonitor.menuContentDidAppear()
+                }
+            )
+            .environmentObject(model)
         )
+    }
+
+    private func configureEventMonitoring() {
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
+        ) { [weak self] event in
+            guard let self else { return event }
+            return self.handleLocalEvent(event)
+        }
+
+        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            guard let self, self.popover.isShown else { return }
+            Task { @MainActor in
+                self.popover.performClose(nil)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidResignActive),
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+    }
+
+    private func handleLocalEvent(_ event: NSEvent) -> NSEvent? {
+        guard popover.isShown else { return event }
+
+        if event.type == .keyDown, event.keyCode == 53 {
+            popover.performClose(nil)
+            return nil
+        }
+
+        guard event.type != .keyDown else { return event }
+
+        let targetWindow = event.window
+        let popoverWindow = popover.contentViewController?.view.window
+        let statusItemWindow = statusItem.button?.window
+
+        if targetWindow == popoverWindow || targetWindow == statusItemWindow {
+            return event
+        }
+
+        popover.performClose(nil)
+        return event
+    }
+
+    @objc
+    private func applicationDidResignActive() {
+        guard popover.isShown else { return }
+        popover.performClose(nil)
+    }
+
+    func popoverWillShow(_ notification: Notification) {
+        performanceMonitor.menuWillShow()
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        performanceMonitor.menuDidShow()
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        performanceMonitor.menuWillClose()
     }
 }
