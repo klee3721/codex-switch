@@ -482,13 +482,26 @@ struct StatusBarLabelView: View {
 
     var body: some View {
         let account = model.activeAccount
+        let remaining = account?.fiveHourRemaining
 
         ZStack {
-            Text(percentString(account?.fiveHourRemaining))
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.primary)
+            CompactUsageBar(
+                percent: remaining,
+                color: statusBarUsageColor(for: remaining),
+                height: 7
+            )
+                .frame(width: 30, height: 7)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.black.opacity(0.38))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.88), lineWidth: 0.9)
+                )
+                .shadow(color: Color.black.opacity(0.40), radius: 0.5, y: 0.5)
                 .opacity(model.currentOperation == nil ? 1 : 0)
+                .accessibilityValue(percentString(remaining))
 
             if model.currentOperation != nil {
                 ProgressView()
@@ -498,6 +511,18 @@ struct StatusBarLabelView: View {
         }
         .frame(width: 38, alignment: .center)
     }
+}
+
+private func statusBarUsageColor(for remainingPercent: Double?) -> Color {
+    guard let remainingPercent else { return Color.white.opacity(0.40) }
+
+    if remainingPercent < 20 {
+        return Color(nsColor: .systemRed)
+    }
+    if remainingPercent < 50 {
+        return CodexVisual.strongYellow
+    }
+    return Color.white
 }
 
 struct BannerView: View {
