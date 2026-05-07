@@ -28,6 +28,7 @@ private enum CodexFormatters {
 
     static let resetDateTime = Date.FormatStyle(date: .abbreviated, time: .shortened)
     static let resetDate = Date.FormatStyle(date: .abbreviated, time: .omitted)
+    static let resetTime = Date.FormatStyle(date: .omitted, time: .shortened)
 }
 
 struct PremiumPanel<Content: View>: View {
@@ -181,6 +182,12 @@ func relativeTimestamp(from milliseconds: Double?) -> String {
 func resetTimestamp(from seconds: Double?) -> String {
     guard let date = dateFromSeconds(seconds) else { return "n/a" }
     return date.formatted(CodexFormatters.resetDateTime)
+}
+
+@MainActor
+func resetTime(from seconds: Double?) -> String {
+    guard let date = dateFromSeconds(seconds) else { return "n/a" }
+    return date.formatted(CodexFormatters.resetTime)
 }
 
 @MainActor
@@ -586,6 +593,29 @@ struct BannerView: View {
     }
 }
 
+struct HeaderMetaItem<ValueContent: View>: View {
+    let title: String
+    @ViewBuilder let valueContent: () -> ValueContent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(CodexVisual.quietText.opacity(0.82))
+                .textCase(.uppercase)
+                .lineLimit(1)
+
+            valueContent()
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.primary.opacity(0.78))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct MenuHeaderView: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
 
@@ -636,19 +666,18 @@ struct MenuHeaderView: View {
                     spacing: 9
                 )
 
-                HStack(spacing: 10) {
-                    Label {
-                        RelativeTimestampText(prefix: "Updated ", milliseconds: account?.usage.updatedAt)
-                    } icon: {
-                        Image(systemName: "clock")
+                HStack(alignment: .top, spacing: 10) {
+                    HeaderMetaItem(title: "Updated") {
+                        RelativeTimestampText(prefix: "", milliseconds: account?.usage.updatedAt)
                     }
-                    Spacer(minLength: 8)
-                    TimeRemainingText(prefix: "5H ", seconds: account?.usage.last5Hours.resetAt)
-                    Text("WK \(resetDate(from: account?.usage.weekly.resetAt))")
+                    HeaderMetaItem(title: "5H Next") {
+                        Text(resetTime(from: account?.usage.last5Hours.resetAt))
+                    }
+                    HeaderMetaItem(title: "WK Reset") {
+                        Text(resetDate(from: account?.usage.weekly.resetAt))
+                    }
                 }
-                .font(.system(size: 11, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(CodexVisual.quietText)
+                .padding(.top, 1)
 
                 if let operation = model.currentOperation {
                     HStack(spacing: 8) {
@@ -1045,23 +1074,23 @@ struct ManagerWindowView: View {
                                 spacing: 12
                             ) {
                                 ManagerMetricCard(
-                                    title: "5 hour",
+                                    title: "5H Next Refresh",
                                     tint: statusColor(for: account),
                                     valueContent: {
-                                        Text(percentString(account.fiveHourRemaining))
+                                        Text(resetTime(from: account.usage.last5Hours.resetAt))
                                     },
                                     noteContent: {
-                                        TimeRemainingText(prefix: "resets in ", seconds: account.usage.last5Hours.resetAt)
+                                        Text("\(resetDate(from: account.usage.last5Hours.resetAt)) · remaining \(percentString(account.fiveHourRemaining))")
                                     }
                                 )
                                 ManagerMetricCard(
-                                    title: "Weekly",
+                                    title: "Weekly Remaining",
                                     tint: CodexVisual.gold,
                                     valueContent: {
                                         Text(percentString(account.weeklyRemaining))
                                     },
                                     noteContent: {
-                                        Text(resetDate(from: account.usage.weekly.resetAt))
+                                        Text("Resets \(resetDate(from: account.usage.weekly.resetAt))")
                                     }
                                 )
                                 ManagerMetricCard(
