@@ -4,6 +4,7 @@ import {
   bridgeDoctor,
   bridgeLinkCurrent,
   bridgeRefresh,
+  bridgeReloginAccount,
   bridgeRemoveAccount,
   bridgeStatus,
   bridgeUse,
@@ -16,6 +17,7 @@ type ParsedCommand =
   | { kind: 'refresh'; active: boolean; all: boolean; accountId?: string }
   | { kind: 'use'; accountId: string }
   | { kind: 'add'; label: string; deviceAuth: boolean }
+  | { kind: 'relogin'; accountId: string; deviceAuth: boolean }
   | { kind: 'remove'; accountId: string; purge: boolean }
   | { kind: 'doctor' }
 
@@ -29,6 +31,7 @@ function usage(): string {
     '  refresh [--active] [--all] [--account <id>]',
     '  use --account <id>',
     '  add --label <label> [--device-auth]',
+    '  relogin --account <id> [--device-auth]',
     '  remove --account <id> [--purge]',
     '  doctor',
   ].join('\n')
@@ -123,6 +126,31 @@ function parseCommand(argv: string[]): ParsedCommand {
 
       return { kind: 'add', label, deviceAuth }
     }
+    case 'relogin': {
+      let accountId: string | undefined
+      let deviceAuth = false
+
+      for (let index = 0; index < rest.length; index += 1) {
+        const token = rest[index]
+        switch (token) {
+          case '--account':
+            accountId = shiftValue(rest, index, token)
+            index += 1
+            break
+          case '--device-auth':
+            deviceAuth = true
+            break
+          default:
+            throw new Error(`Unknown option for relogin: ${token}`)
+        }
+      }
+
+      if (!accountId) {
+        throw new Error('Missing required --account for relogin.')
+      }
+
+      return { kind: 'relogin', accountId, deviceAuth }
+    }
     case 'remove': {
       let accountId: string | undefined
       let purge = false
@@ -187,6 +215,14 @@ async function main() {
       await runBridgeCommand(() =>
         bridgeAddAccount({
           label: command.label,
+          deviceAuth: command.deviceAuth,
+        })
+      )
+      return
+    case 'relogin':
+      await runBridgeCommand(() =>
+        bridgeReloginAccount({
+          accountId: command.accountId,
           deviceAuth: command.deviceAuth,
         })
       )

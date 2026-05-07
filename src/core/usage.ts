@@ -9,6 +9,9 @@ const DEFAULT_CHATGPT_BASE = 'https://chatgpt.com/backend-api/'
 const CHATGPT_USAGE_PATH = '/wham/usage'
 const GENERIC_USAGE_PATH = '/api/codex/usage'
 const REQUEST_TIMEOUT_MS = 15_000
+const DEFAULT_SESSION_FILE_LIMIT = 80
+const DEFAULT_SESSION_SCAN_CHUNK_BYTES = 64 * 1024
+const DEFAULT_SESSION_SCAN_MAX_BYTES = 512 * 1024
 
 export type UsageFetchErrorKind = 'relogin_required' | 'request_failed' | 'network' | 'parse_failed'
 
@@ -209,6 +212,13 @@ type SessionRateLimits = {
   plan_type?: string | null
 }
 
+export type SessionUsageSearchOptions = {
+  sessionsRoot?: string
+  limit?: number
+  chunkBytes?: number
+  maxBytesPerFile?: number
+}
+
 function mapSessionWindow(window: SessionRateLimitWindow | null | undefined): UsageWindow {
   const usedPercent = clampPercent(window?.used_percent)
   const minutes = typeof window?.window_minutes === 'number' ? window.window_minutes : null
@@ -232,8 +242,9 @@ function toUsageFromSessionRateLimits(rateLimits: SessionRateLimits, timestamp: 
   }
 }
 
-async function listRecentSessionFiles(limit = 80) {
-  const sessionsRoot = path.join(os.homedir(), '.codex', 'sessions')
+async function listRecentSessionFiles(options?: SessionUsageSearchOptions) {
+  const sessionsRoot = options?.sessionsRoot ?? path.join(os.homedir(), '.codex', 'sessions')
+  const limit = options?.limit ?? DEFAULT_SESSION_FILE_LIMIT
   const result: string[] = []
 
   const listSortedDesc = async (dir: string) => {
@@ -311,17 +322,59 @@ function parseSessionLineForRateLimits(line: string): { rateLimits: SessionRateL
   }
 }
 
-export async function fetchLatestUsageFromCodexSessions(): Promise<UsageSnapshot | null> {
-  const files = await listRecentSessionFiles()
-  for (const filePath of files) {
-    try {
-      const contents = await fs.readFile(filePath, 'utf8')
-      const lines = contents.split(/\r?\n/)
+async function findLatestRateLimitsInSessionFile(
+  filePath: string,
+  options?: Pick<SessionUsageSearchOptions, 'chunkBytes' | 'maxBytesPerFile'>
+) {
+  const chunkBytes = Math.max(256, options?.chunkBytes ?? DEFAULT_SESSION_SCAN_CHUNK_BYTES)
+  const maxBytesPerFile = Math.max(chunkBytes, options?.maxBytesPerFile ?? DEFAULT_SESSION_SCAN_MAX_BYTES)
+  const handle = await fs.open(filePath, 'r')
+
+  try {
+    const stat = await handle.stat()
+    if (stat.size <= 0) return null
+
+    let position = stat.size
+    let scannedBytes = 0
+    let carry = ''
+
+    while (position > 0 && scannedBytes < maxBytesPerFile) {
+      const bytesToRead = Math.min(chunkBytes, position, maxBytesPerFile - scannedBytes)
+      position -= bytesToRead
+
+      const buffer = Buffer.alloc(bytesToRead)
+      const { bytesRead } = await handle.read(buffer, 0, bytesToRead, position)
+      if (bytesRead <= 0) break
+
+      scannedBytes += bytesRead
+      const chunkText = buffer.toString('utf8', 0, bytesRead) + carry
+      const lines = chunkText.split(/\r?\n/)
+      carry = lines.shift() ?? ''
+
       for (let index = lines.length - 1; index >= 0; index -= 1) {
         const line = lines[index]
         if (!line) continue
         const parsed = parseSessionLineForRateLimits(line)
-        if (!parsed) continue
+        if (parsed) return parsed
+      }
+    }
+
+    if (carry) {
+      return parseSessionLineForRateLimits(carry)
+    }
+
+    return null
+  } finally {
+    await handle.close()
+  }
+}
+
+export async function fetchLatestUsageFromCodexSessions(options?: SessionUsageSearchOptions): Promise<UsageSnapshot | null> {
+  const files = await listRecentSessionFiles(options)
+  for (const filePath of files) {
+    try {
+      const parsed = await findLatestRateLimitsInSessionFile(filePath, options)
+      if (parsed) {
         return toUsageFromSessionRateLimits(parsed.rateLimits, parsed.timestamp)
       }
     } catch {

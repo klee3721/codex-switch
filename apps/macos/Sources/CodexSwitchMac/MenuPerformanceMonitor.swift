@@ -3,9 +3,29 @@ import CoreVideo
 import QuartzCore
 import os
 
+struct MenuPerformanceConfiguration {
+    let isEnabled: Bool
+    let mainThreadPingIntervalTicks: Int
+    let hitchThresholdMS: Double
+
+    static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Self {
+        let rawValue = environment["CODEX_SWITCH_ENABLE_MENU_PERF_MONITOR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let isEnabled = rawValue == "1" || rawValue == "true" || rawValue == "yes"
+
+        return Self(
+            isEnabled: isEnabled,
+            mainThreadPingIntervalTicks: 8,
+            hitchThresholdMS: 33
+        )
+    }
+}
+
 final class MenuPerformanceMonitor: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.codexswitch.mac", category: "performance")
     private let stateQueue = DispatchQueue(label: "CodexSwitchMac.MenuPerformanceMonitor")
+    private let configuration: MenuPerformanceConfiguration
 
     private var displayLink: CVDisplayLink?
     private var isMonitoring = false
@@ -13,7 +33,6 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
 
     private var openRequestedAt: CFTimeInterval?
     private var willShowAt: CFTimeInterval?
-    private var displaySampleStartedAt: CFTimeInterval = 0
     private var sessionStartedAt: CFTimeInterval = 0
 
     private var displayTicks = 0
@@ -21,6 +40,11 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
     private var skippedPings = 0
     private var hitchCount = 0
     private var worstHitchMS = 0.0
+    private var displayTickSequence = 0
+
+    init(configuration: MenuPerformanceConfiguration = .fromEnvironment()) {
+        self.configuration = configuration
+    }
 
     deinit {
         stopDisplayLink()
@@ -28,6 +52,7 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
 
     @MainActor
     func markOpenRequested() {
+        guard configuration.isEnabled else { return }
         let now = CACurrentMediaTime()
         stateQueue.async {
             self.openRequestedAt = now
@@ -38,6 +63,7 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
 
     @MainActor
     func menuWillShow() {
+        guard configuration.isEnabled else { return }
         let now = CACurrentMediaTime()
         stateQueue.async {
             self.willShowAt = now
@@ -48,6 +74,7 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
 
     @MainActor
     func menuDidShow() {
+        guard configuration.isEnabled else { return }
         let now = CACurrentMediaTime()
         stateQueue.async {
             let requestLatencyMS = self.openRequestedAt.map { (now - $0) * 1000 }
@@ -63,6 +90,7 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
 
     @MainActor
     func menuContentDidAppear() {
+        guard configuration.isEnabled else { return }
         let now = CACurrentMediaTime()
         stateQueue.async {
             let renderLatencyMS = self.openRequestedAt.map { (now - $0) * 1000 }
@@ -76,6 +104,7 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
 
     @MainActor
     func menuWillClose() {
+        guard configuration.isEnabled else { return }
         stateQueue.async {
             guard self.isMonitoring else { return }
 
@@ -108,13 +137,13 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
 
     private func resetCounters(now: CFTimeInterval) {
         sessionStartedAt = now
-        displaySampleStartedAt = now
         displayTicks = 0
         mainThreadFrames = 0
         skippedPings = 0
         hitchCount = 0
         worstHitchMS = 0
         pendingMainThreadPing = false
+        displayTickSequence = 0
     }
 
     private func resetSessionState() {
@@ -170,12 +199,18 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
     }
 
     private func handleDisplayTick() {
+        guard configuration.isEnabled else { return }
         let tickTime = CACurrentMediaTime()
 
         stateQueue.async {
             guard self.isMonitoring else { return }
 
             self.displayTicks += 1
+            self.displayTickSequence += 1
+
+            if self.displayTickSequence % self.configuration.mainThreadPingIntervalTicks != 0 {
+                return
+            }
 
             if self.pendingMainThreadPing {
                 self.skippedPings += 1
@@ -186,8 +221,6 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
                     self.recordMainThreadFrame(scheduledAt: scheduledAt)
                 }
             }
-
-            self.flushSampleIfNeeded(now: tickTime)
         }
     }
 
@@ -201,36 +234,12 @@ final class MenuPerformanceMonitor: @unchecked Sendable {
             self.pendingMainThreadPing = false
             self.mainThreadFrames += 1
 
-            if delayMS >= 33 {
+            if delayMS >= self.configuration.hitchThresholdMS {
                 self.hitchCount += 1
                 self.worstHitchMS = max(self.worstHitchMS, delayMS)
                 let message = String(format: "menu main-thread hitch delay_ms=%.1f", delayMS)
                 self.logger.warning("\(message, privacy: .public)")
             }
         }
-    }
-
-    private func flushSampleIfNeeded(now: CFTimeInterval) {
-        let elapsed = now - displaySampleStartedAt
-        guard elapsed >= 1 else { return }
-
-        let uiFPS = Double(mainThreadFrames) / elapsed
-        let displayFPS = Double(displayTicks) / elapsed
-        let message = String(
-            format: "menu perf sample window_s=%.2f ui_fps=%.1f display_fps=%.1f hitches=%d skipped_pings=%d",
-            elapsed,
-            uiFPS,
-            displayFPS,
-            hitchCount,
-            skippedPings
-        )
-        logger.notice("\(message, privacy: .public)")
-
-        displaySampleStartedAt = now
-        displayTicks = 0
-        mainThreadFrames = 0
-        skippedPings = 0
-        hitchCount = 0
-        worstHitchMS = 0
     }
 }

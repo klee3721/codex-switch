@@ -5,6 +5,7 @@ import {
   formatStateSummary,
   listState,
   refreshUsage,
+  reloginAccount,
   removeAccount,
   useAccount,
 } from './core/accounts'
@@ -196,6 +197,24 @@ export async function bridgeAddAccount(options: {
 
   return buildActionPayload(state, {
     message: `Added account ${result.account.email ?? result.account.label}.`,
+    warning: result.warning,
+    affectedAccountId: result.account.id,
+    updatedAccountIds: [result.account.id],
+  })
+}
+
+export async function bridgeReloginAccount(options: {
+  accountId: string
+  deviceAuth?: boolean
+}): Promise<BridgeActionPayload> {
+  const result = await reloginAccount(options.accountId, {
+    loginMode: options.deviceAuth ? 'device' : 'browser',
+    loginStdio: 'pipe',
+  })
+  const state = await listState()
+
+  return buildActionPayload(state, {
+    message: `Re-logged in ${result.account.email ?? result.account.label}.`,
     warning: result.warning,
     affectedAccountId: result.account.id,
     updatedAccountIds: [result.account.id],

@@ -11,6 +11,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private let hostingView: NSHostingView<AnyView>
     private let statusMenu: NSMenu
     private let performanceMonitor = MenuPerformanceMonitor()
+    private var openAtLoginMenuItem: NSMenuItem?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
 
@@ -91,6 +92,12 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     @objc
+    func toggleOpenAtLogin(_ sender: Any?) {
+        model.setOpenAtLogin(!model.openAtLogin)
+        updateOpenAtLoginMenuItem()
+    }
+
+    @objc
     func quitApp(_ sender: Any?) {
         NSApplication.shared.terminate(sender)
     }
@@ -119,6 +126,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     private func configureMenu() {
+        statusMenu.delegate = self
+
         let openManager = NSMenuItem(title: "Open Manager", action: #selector(openManagerWindow(_:)), keyEquivalent: "")
         openManager.target = self
         statusMenu.addItem(openManager)
@@ -133,9 +142,21 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
         statusMenu.addItem(.separator())
 
+        let openAtLogin = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin(_:)), keyEquivalent: "")
+        openAtLogin.target = self
+        openAtLoginMenuItem = openAtLogin
+        statusMenu.addItem(openAtLogin)
+
+        statusMenu.addItem(.separator())
+
         let quit = NSMenuItem(title: "Quit", action: #selector(quitApp(_:)), keyEquivalent: "")
         quit.target = self
         statusMenu.addItem(quit)
+    }
+
+    private func updateOpenAtLoginMenuItem() {
+        model.refreshOpenAtLoginStatus()
+        openAtLoginMenuItem?.state = model.openAtLogin ? .on : .off
     }
 
     private func configurePopover() {
@@ -216,5 +237,11 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     func popoverWillClose(_ notification: Notification) {
         performanceMonitor.menuWillClose()
+    }
+}
+
+extension StatusBarController: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        updateOpenAtLoginMenuItem()
     }
 }

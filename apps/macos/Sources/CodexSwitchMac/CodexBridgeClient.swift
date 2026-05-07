@@ -33,26 +33,21 @@ final class CodexBridgeClient: @unchecked Sendable {
 
     private let decoder = JSONDecoder()
     private let initialCommand: BridgeCommand
-    private let fallbackCommand: BridgeCommand?
     private let environment: [String: String]
-    private let bunURL: URL
 
     init() throws {
         let environment = Self.buildBridgeEnvironment()
         let bunURL = try Self.resolveBunExecutable(environment: environment)
 
         self.environment = environment
-        self.bunURL = bunURL
 
         if let bundledBridge = Self.resolveBundledBridge(bunURL: bunURL) {
             self.initialCommand = bundledBridge
-            self.fallbackCommand = nil
             return
         }
 
         let repoCommand = try Self.resolveRepoBridge(bunURL: bunURL)
         self.initialCommand = repoCommand
-        self.fallbackCommand = nil
 
     }
 
@@ -84,6 +79,14 @@ final class CodexBridgeClient: @unchecked Sendable {
         return try await run(arguments, as: BridgeActionPayload.self)
     }
 
+    func reloginAccount(id: String, deviceAuth: Bool) async throws -> BridgeActionPayload {
+        var arguments = ["relogin", "--account", id]
+        if deviceAuth {
+            arguments.append("--device-auth")
+        }
+        return try await run(arguments, as: BridgeActionPayload.self)
+    }
+
     func removeAccount(id: String, purge: Bool) async throws -> BridgeActionPayload {
         var arguments = ["remove", "--account", id]
         if purge {
@@ -97,7 +100,7 @@ final class CodexBridgeClient: @unchecked Sendable {
     }
 
     private func run<Payload: Decodable & Sendable>(_ arguments: [String], as type: Payload.Type) async throws -> Payload {
-        let command = Self.resolveBundledBridge(bunURL: bunURL) ?? fallbackCommand ?? initialCommand
+        let command = initialCommand
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let stdout = Pipe()
@@ -105,7 +108,9 @@ final class CodexBridgeClient: @unchecked Sendable {
 
             process.executableURL = command.executableURL
             process.arguments = command.argumentsPrefix + arguments
-            process.currentDirectoryURL = command.workingDirectory
+            if let workingDirectory = Self.validatedWorkingDirectory(command.workingDirectory) {
+                process.currentDirectoryURL = workingDirectory
+            }
             process.environment = environment
             process.standardOutput = stdout
             process.standardError = stderr
@@ -150,21 +155,51 @@ final class CodexBridgeClient: @unchecked Sendable {
     }
 
     private static func resolveBundledBridge(bunURL: URL) -> BridgeCommand? {
-        guard let resourcesURL = Bundle.main.resourceURL else {
+        guard
+            let resourcesURL = Bundle.main.resourceURL,
+            let bridgeDirectory = bundledBridgeDirectory(resourcesURL: resourcesURL)
+        else {
             return nil
         }
 
-        let bridgeDirectory = resourcesURL.appendingPathComponent("bridge", isDirectory: true)
         let cliURL = bridgeDirectory.appendingPathComponent("bridge-cli.js")
-        guard FileManager.default.fileExists(atPath: cliURL.path) else {
-            return nil
-        }
-
         return BridgeCommand(
             workingDirectory: bridgeDirectory,
             executableURL: bunURL,
             argumentsPrefix: [cliURL.path]
         )
+    }
+
+    static func bundledBridgeDirectory(resourcesURL: URL, fileManager: FileManager = .default) -> URL? {
+        for root in bundledBridgeSearchRoots(from: resourcesURL) {
+            let bridgeDirectory = root.appendingPathComponent("bridge", isDirectory: true)
+            let cliURL = bridgeDirectory.appendingPathComponent("bridge-cli.js")
+            if fileManager.fileExists(atPath: cliURL.path) {
+                return bridgeDirectory
+            }
+        }
+
+        return nil
+    }
+
+    static func bundledBridgeSearchRoots(from resourcesURL: URL) -> [URL] {
+        let standardizedResourcesURL = resourcesURL.standardizedFileURL
+        let parentResourcesURL = standardizedResourcesURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources", isDirectory: true)
+
+        return [standardizedResourcesURL,
+                standardizedResourcesURL.appendingPathComponent("Resources", isDirectory: true),
+                parentResourcesURL]
+    }
+
+    static func validatedWorkingDirectory(_ directory: URL, fileManager: FileManager = .default) -> URL? {
+        let path = directory.path
+        guard fileManager.fileExists(atPath: path) else {
+            return nil
+        }
+
+        return directory
     }
 
     private static func resolveRepoBridge(bunURL: URL) throws -> BridgeCommand {

@@ -7,6 +7,7 @@ import {
   getActiveAccount,
   listState,
   refreshUsage,
+  reloginAccount,
   removeAccount,
   useAccount,
 } from "../core/accounts";
@@ -139,7 +140,7 @@ function refreshSummary(account: Account) {
     return "{red-fg}Remove or replace this account{/red-fg}";
   }
   if (status === "relogin_required") {
-    return "{yellow-fg}Re-add this account before switching{/yellow-fg}";
+    return "{yellow-fg}Press L to re-login before switching{/yellow-fg}";
   }
   if (status === "stale") {
     return "{yellow-fg}Refresh usage before relying on these numbers{/yellow-fg}";
@@ -720,7 +721,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
           ? ` {gray-fg}Selected{/gray-fg} ${selectedIndex + 1}/${displayAccounts.length}  {gray-fg}Focus{/gray-fg} Accounts`
           : ` {yellow-fg}Selected account hidden by filter{/yellow-fg}`
         : " {gray-fg}No accounts loaded{/gray-fg}";
-    const keysLine = ` {gray-fg}A{/gray-fg}dd  {gray-fg}D{/gray-fg}el  {gray-fg}⏎{/gray-fg}use  {gray-fg}R{/gray-fg}efr  {gray-fg}⇧R{/gray-fg}all  {gray-fg}S{/gray-fg}ort  {gray-fg}/{/gray-fg}find  {gray-fg}C{/gray-fg}opy  {gray-fg}?{/gray-fg}help  {gray-fg}Q{/gray-fg}uit`;
+    const keysLine = ` {gray-fg}A{/gray-fg}dd  {gray-fg}L{/gray-fg}ogin  {gray-fg}D{/gray-fg}el  {gray-fg}⏎{/gray-fg}use  {gray-fg}R{/gray-fg}efr  {gray-fg}⇧R{/gray-fg}all  {gray-fg}S{/gray-fg}ort  {gray-fg}/{/gray-fg}find  {gray-fg}C{/gray-fg}opy  {gray-fg}?{/gray-fg}help  {gray-fg}Q{/gray-fg}uit`;
     footer.setContent(`${statusLine}\n${contextLine}\n${keysLine}`);
   }
 
@@ -872,6 +873,33 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
     });
   }
 
+  async function handleRelogin() {
+    const account = selectedAccount();
+    if (!account) {
+      setStatus("No account selected.", "warn");
+      refreshView();
+      return;
+    }
+
+    if (isUnusableAccountUsage(account.usage)) {
+      setStatus(`"${displayName(account)}" is deleted/deactivated.`, "error");
+      refreshView();
+      return;
+    }
+
+    await runBusy(`Starting ChatGPT login for ${displayName(account)}…`, async () => {
+      const result = await reloginAccount(account.id, {
+        loginMode: "browser",
+        loginStdio: "pipe",
+      });
+      selectedAccountId = result.account.id;
+      setStatus(
+        result.warning ?? `Re-logged in "${displayName(result.account)}".`,
+        result.warning ? "warn" : "success"
+      );
+    });
+  }
+
   async function handleRefreshAll() {
     if (state.accounts.length === 0) {
       setStatus("No accounts to refresh.", "warn");
@@ -994,6 +1022,7 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
       "{bold}{cyan-fg}Keybindings{/cyan-fg}{/bold}",
       "",
       "  {cyan-fg}A{/cyan-fg}         Add a new account via ChatGPT browser login",
+      "  {cyan-fg}L{/cyan-fg}         Re-login the selected account",
       "  {cyan-fg}D{/cyan-fg}         Remove the selected account",
       "  {cyan-fg}Enter{/cyan-fg}     Switch to the selected account",
       "  {cyan-fg}R{/cyan-fg}         Refresh usage for selected account",
@@ -1056,6 +1085,10 @@ export async function runTui(options?: { deferCurrentLink?: boolean }) {
 
   screen.key(["a"], () => {
     void handleAdd();
+  });
+
+  screen.key(["l"], () => {
+    void handleRelogin();
   });
 
   screen.key(["d"], () => {

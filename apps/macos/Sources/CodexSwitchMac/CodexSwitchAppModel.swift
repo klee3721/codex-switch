@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ServiceManagement
 
 enum BannerKind: Equatable {
     case info
@@ -28,11 +29,10 @@ final class CodexSwitchAppModel: ObservableObject {
     @Published var selectedAccountID: String?
     @Published var isAddAccountSheetPresented = false
     @Published var purgeProfileOnRemove = false
-    @Published private(set) var now = Date()
+    @Published private(set) var openAtLogin = false
 
     let bridge: CodexBridgeClient?
     private var refreshTimer: AnyCancellable?
-    private var clockTimer: AnyCancellable?
 
     init() {
         do {
@@ -43,6 +43,7 @@ final class CodexSwitchAppModel: ObservableObject {
         }
 
         startTimers()
+        refreshOpenAtLoginStatus()
 
         Task {
             await bootstrap()
@@ -86,6 +87,25 @@ final class CodexSwitchAppModel: ObservableObject {
 
     func openAddAccountFlow() {
         isAddAccountSheetPresented = true
+    }
+
+    func refreshOpenAtLoginStatus() {
+        openAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    func setOpenAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            refreshOpenAtLoginStatus()
+            banner = BannerState(kind: .success, message: enabled ? "Codex Switch will open at login." : "Codex Switch will no longer open at login.")
+        } catch {
+            refreshOpenAtLoginStatus()
+            banner = BannerState(kind: .error, message: error.localizedDescription)
+        }
     }
 
     func loadCachedStatus(showSuccessBanner: Bool = false) async {
@@ -222,6 +242,33 @@ final class CodexSwitchAppModel: ObservableObject {
         }
     }
 
+    func reloginAccount(id: String, deviceAuth: Bool = false) async {
+        guard let bridge else { return }
+        guard currentOperation == nil else { return }
+
+        let accountName = accounts.first(where: { $0.id == id })?.displayName
+        currentOperation = AppOperation(
+            title: deviceAuth ? "Waiting for device auth" : "Waiting for browser login",
+            subtitle: accountName
+        )
+        defer { currentOperation = nil }
+
+        do {
+            let result = try await bridge.reloginAccount(id: id, deviceAuth: deviceAuth)
+            applyStatus(result.state)
+            if let accountID = result.affectedAccountId {
+                selectedAccountID = accountID
+            }
+            if let warning = result.warning {
+                banner = BannerState(kind: .warning, message: warning)
+            } else {
+                banner = BannerState(kind: .success, message: result.message)
+            }
+        } catch {
+            banner = BannerState(kind: .error, message: error.localizedDescription)
+        }
+    }
+
     func removeSelectedAccount() async {
         guard let bridge else { return }
         guard currentOperation == nil else { return }
@@ -292,12 +339,6 @@ final class CodexSwitchAppModel: ObservableObject {
                 Task {
                     await self.refreshActive(showSuccessBanner: false, reason: "Refreshing active account…")
                 }
-            }
-
-        clockTimer = Timer.publish(every: 30, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] value in
-                self?.now = value
             }
     }
 }

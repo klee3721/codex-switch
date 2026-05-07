@@ -5,6 +5,7 @@ import {
   bridgeDoctor,
   bridgeLinkCurrent,
   bridgeRefresh,
+  bridgeReloginAccount,
   bridgeRemoveAccount,
   bridgeStatus,
   bridgeUse,
@@ -16,6 +17,7 @@ import {
   formatStateSummary,
   listState,
   refreshUsage,
+  reloginAccount,
   removeAccount,
   useAccount,
 } from './core/accounts'
@@ -131,6 +133,20 @@ async function main() {
         })
     )
     .addCommand(
+      new Command('relogin')
+        .description('Re-run Codex login for an existing account and return JSON')
+        .requiredOption('--account <id>', 'Account id or exact label')
+        .option('--device-auth', 'Use device-code login instead of direct browser flow', false)
+        .action(async (options: { account: string; deviceAuth?: boolean }) => {
+          await runBridgeCommand(() =>
+            bridgeReloginAccount({
+              accountId: options.account,
+              deviceAuth: options.deviceAuth ?? false,
+            })
+          )
+        })
+    )
+    .addCommand(
       new Command('remove')
         .description('Remove an account and return JSON')
         .requiredOption('--account <id>', 'Account id or exact label')
@@ -177,6 +193,24 @@ async function main() {
         console.log('Profile directory purged.')
       }
       console.log(`Active account is now: ${result.activeAccountId ?? 'none'}`)
+    })
+
+  program
+    .command('relogin')
+    .description('Re-run ChatGPT browser login for an existing account')
+    .argument('<id-or-label>', 'Account id or exact label')
+    .option('--device-auth', 'Use device-code login instead of direct browser flow', false)
+    .action(async (identifier: string, options: { deviceAuth?: boolean }) => {
+      const result = await reloginAccount(identifier, {
+        loginMode: options.deviceAuth ? 'device' : 'browser',
+      })
+      console.log(`Re-logged in account: ${displayAccountName(result.account)}`)
+      if (result.switchedActive) {
+        console.log('Active Codex auth was updated.')
+      }
+      if (result.warning) {
+        console.log(`Warning: ${result.warning}`)
+      }
     })
 
   program

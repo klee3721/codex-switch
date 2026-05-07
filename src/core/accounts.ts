@@ -36,6 +36,12 @@ export type AddAccountOptions = {
   loginStdio?: CodexLoginStdio
 }
 
+export type ReloginAccountResult = {
+  account: Account
+  warning: string | null
+  switchedActive: boolean
+}
+
 export type RemoveAccountResult = {
   removed: Account
   activeAccountId: string | null
@@ -62,6 +68,8 @@ export type EnsureCurrentLinkResult = {
 export type EnsureCurrentLinkOptions = {
   refreshUsage?: boolean
 }
+
+type SessionFallbackLoader = () => Promise<UsageSnapshot | null>
 
 function slugify(value: string) {
   const normalized = value
@@ -139,7 +147,20 @@ async function syncCurrentCodexFilesToProfile(profileDir: string) {
   }
 }
 
-async function resolveUsageSnapshot(profileDir: string): Promise<{ usage: UsageSnapshot; warning: string | null }> {
+function createSessionFallbackLoader(): SessionFallbackLoader {
+  let promise: Promise<UsageSnapshot | null> | null = null
+  return () => {
+    if (!promise) {
+      promise = fetchLatestUsageFromCodexSessions()
+    }
+    return promise
+  }
+}
+
+async function resolveUsageSnapshot(
+  profileDir: string,
+  options?: { sessionFallbackLoader?: SessionFallbackLoader }
+): Promise<{ usage: UsageSnapshot; warning: string | null }> {
   try {
     const usage = await fetchUsageForProfile(profileDir)
     return {
@@ -168,7 +189,7 @@ async function resolveUsageSnapshot(profileDir: string): Promise<{ usage: UsageS
       }
     }
 
-    const fallback = await fetchLatestUsageFromCodexSessions()
+    const fallback = await (options?.sessionFallbackLoader?.() ?? fetchLatestUsageFromCodexSessions())
     if (fallback) {
       return {
         usage: fallback,
@@ -443,6 +464,56 @@ export async function addAccount(label: string, options?: AddAccountOptions): Pr
   }
 }
 
+export async function reloginAccount(identifier: string, options?: AddAccountOptions): Promise<ReloginAccountResult> {
+  await ensureSwitchDirs()
+  const state = await readState()
+  if (state.accounts.length === 0) {
+    throw new Error('No accounts available.')
+  }
+
+  const account = resolveAccountByIdentifier(state, identifier)
+  if (isUnusableAccountUsage(account.usage)) {
+    throw new Error(`Account "${account.email ?? account.label}" is deleted/deactivated and cannot be re-logged in.`)
+  }
+
+  const loginMode: CodexLoginMode = options?.loginMode ?? 'browser'
+  const loginStdio: CodexLoginStdio = options?.loginStdio ?? 'inherit'
+
+  await runCodexChatGptLogin(account.profileDir, {
+    mode: loginMode,
+    stdio: loginStdio,
+  })
+
+  const { authPath, json } = await readAuthFile(account.profileDir)
+  const tokens = extractAuthTokens(authPath, json)
+  validateChatGptAuth(tokens)
+  const usageResult = await resolveUsageSnapshot(account.profileDir)
+
+  const nextAccount: Account = {
+    ...account,
+    email: extractEmailFromIdToken(tokens.idToken) ?? account.email,
+    authSignature: computeAuthSignature(tokens),
+    updatedAt: Date.now(),
+    usage: usageResult.usage,
+  }
+
+  const nextAccounts = state.accounts.map((entry) => (entry.id === account.id ? nextAccount : entry))
+  await saveState({
+    activeAccountId: state.activeAccountId,
+    accounts: nextAccounts,
+  })
+
+  if (state.activeAccountId === account.id) {
+    await switchToAccount(nextAccount)
+  }
+
+  return {
+    account: nextAccount,
+    warning: usageResult.warning,
+    switchedActive: state.activeAccountId === account.id,
+  }
+}
+
 export async function removeAccount(identifier: string, purge = false): Promise<RemoveAccountResult> {
   const state = await readState()
   if (state.accounts.length === 0) {
@@ -530,12 +601,15 @@ export async function refreshUsage(options?: { accountId?: string; all?: boolean
       ]
 
   const targetIds = new Set(targets.map((entry) => entry.id))
+  const sessionFallbackLoader = createSessionFallbackLoader()
   const refreshedById = new Map(
     await Promise.all(
       state.accounts
         .filter((account) => targetIds.has(account.id))
         .map(async (account) => {
-          const usageResult = await resolveUsageSnapshot(account.profileDir)
+          const usageResult = await resolveUsageSnapshot(account.profileDir, {
+            sessionFallbackLoader,
+          })
           const next: Account = {
             ...account,
             updatedAt: Date.now(),

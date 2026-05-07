@@ -17,5 +17,10 @@ let package = Package(
                 .copy("Resources"),
             ]
         ),
+        .testTarget(
+            name: "CodexSwitchMacTests",
+            dependencies: ["CodexSwitchMac"],
+            path: "Tests/CodexSwitchMacTests"
+        ),
     ]
 )

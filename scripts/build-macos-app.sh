@@ -29,7 +29,7 @@ if pgrep -x CodexSwitchMac >/dev/null 2>&1; then
 fi
 
 echo "Building TypeScript bridge..."
-npm run build
+bun run build
 
 echo "Building release executable..."
 swift build --package-path "$APP_ROOT" -c release

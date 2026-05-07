@@ -220,6 +220,28 @@ func statusNote(for account: BridgeAccountSummary?) -> String {
     }
 }
 
+struct RelativeTimestampText: View {
+    let prefix: String
+    let milliseconds: Double?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { _ in
+            Text("\(prefix)\(relativeTimestamp(from: milliseconds))")
+        }
+    }
+}
+
+struct TimeRemainingText: View {
+    let prefix: String
+    let seconds: Double?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            Text("\(prefix)\(timeRemaining(until: seconds, now: context.date))")
+        }
+    }
+}
+
 struct CompactUsageBar: View {
     let percent: Double?
     let color: Color
@@ -414,11 +436,11 @@ struct IconCommandButton: View {
     }
 }
 
-struct ManagerMetricCard: View {
+struct ManagerMetricCard<ValueContent: View, NoteContent: View>: View {
     let title: String
-    let value: String
-    let note: String
     var tint: Color = CodexVisual.gold
+    @ViewBuilder let valueContent: () -> ValueContent
+    @ViewBuilder let noteContent: () -> NoteContent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -432,13 +454,13 @@ struct ManagerMetricCard: View {
                     .frame(width: 6, height: 6)
             }
 
-            Text(value)
+            valueContent()
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-            Text(note)
+            noteContent()
                 .font(.caption)
                 .foregroundStyle(CodexVisual.quietText)
                 .lineLimit(1)
@@ -615,9 +637,13 @@ struct MenuHeaderView: View {
                 )
 
                 HStack(spacing: 10) {
-                    Label("Updated \(relativeTimestamp(from: account?.usage.updatedAt))", systemImage: "clock")
+                    Label {
+                        RelativeTimestampText(prefix: "Updated ", milliseconds: account?.usage.updatedAt)
+                    } icon: {
+                        Image(systemName: "clock")
+                    }
                     Spacer(minLength: 8)
-                    Text("5H \(timeRemaining(until: account?.usage.last5Hours.resetAt, now: model.now))")
+                    TimeRemainingText(prefix: "5H ", seconds: account?.usage.last5Hours.resetAt)
                     Text("WK \(resetDate(from: account?.usage.weekly.resetAt))")
                 }
                 .font(.system(size: 11, weight: .medium))
@@ -934,13 +960,17 @@ struct MenuContentView: View {
                     LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(model.accounts.enumerated()), id: \.element.id) { index, account in
                             Button {
-                                guard account.canSwitch else { return }
-                                Task { await model.switchAccount(id: account.id) }
+                                if account.usage.status == .reloginRequired {
+                                    Task { await model.reloginAccount(id: account.id) }
+                                } else {
+                                    guard account.canSwitch else { return }
+                                    Task { await model.switchAccount(id: account.id) }
+                                }
                             } label: {
                                 AccountRowView(account: account)
                             }
                             .buttonStyle(.plain)
-                            .disabled(model.hasBlockingOperation || !account.canSwitch)
+                            .disabled(model.hasBlockingOperation || (!account.canSwitch && account.usage.status != .reloginRequired))
 
                             if index < model.accounts.count - 1 {
                                 SectionDivider()
@@ -977,6 +1007,14 @@ struct MenuContentView: View {
 struct ManagerWindowView: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
 
+    private var openAtLoginBinding: Binding<Bool> {
+        Binding {
+            model.openAtLogin
+        } set: { enabled in
+            model.setOpenAtLogin(enabled)
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
             List(selection: $model.selectedAccountID) {
@@ -1008,27 +1046,43 @@ struct ManagerWindowView: View {
                             ) {
                                 ManagerMetricCard(
                                     title: "5 hour",
-                                    value: percentString(account.fiveHourRemaining),
-                                    note: "resets in \(timeRemaining(until: account.usage.last5Hours.resetAt, now: model.now))",
-                                    tint: statusColor(for: account)
+                                    tint: statusColor(for: account),
+                                    valueContent: {
+                                        Text(percentString(account.fiveHourRemaining))
+                                    },
+                                    noteContent: {
+                                        TimeRemainingText(prefix: "resets in ", seconds: account.usage.last5Hours.resetAt)
+                                    }
                                 )
                                 ManagerMetricCard(
                                     title: "Weekly",
-                                    value: percentString(account.weeklyRemaining),
-                                    note: resetDate(from: account.usage.weekly.resetAt),
-                                    tint: CodexVisual.gold
+                                    tint: CodexVisual.gold,
+                                    valueContent: {
+                                        Text(percentString(account.weeklyRemaining))
+                                    },
+                                    noteContent: {
+                                        Text(resetDate(from: account.usage.weekly.resetAt))
+                                    }
                                 )
                                 ManagerMetricCard(
                                     title: "Updated",
-                                    value: relativeTimestamp(from: account.usage.updatedAt),
-                                    note: resetTimestamp(from: account.usage.last5Hours.resetAt),
-                                    tint: Color(nsColor: .systemBlue)
+                                    tint: Color(nsColor: .systemBlue),
+                                    valueContent: {
+                                        RelativeTimestampText(prefix: "", milliseconds: account.usage.updatedAt)
+                                    },
+                                    noteContent: {
+                                        Text(resetTimestamp(from: account.usage.last5Hours.resetAt))
+                                    }
                                 )
                                 ManagerMetricCard(
                                     title: "Plan",
-                                    value: (account.usage.planType ?? "unknown").uppercased(),
-                                    note: resetTimestamp(from: account.usage.weekly.resetAt),
-                                    tint: Color(nsColor: .systemPurple)
+                                    tint: Color(nsColor: .systemPurple),
+                                    valueContent: {
+                                        Text((account.usage.planType ?? "unknown").uppercased())
+                                    },
+                                    noteContent: {
+                                        Text(resetTimestamp(from: account.usage.weekly.resetAt))
+                                    }
                                 )
                             }
 
@@ -1057,6 +1111,15 @@ struct ManagerWindowView: View {
 
                             DetailSection(title: "Actions") {
                                 HStack(spacing: 10) {
+                                    if account.usage.status == .reloginRequired {
+                                        Button {
+                                            Task { await model.reloginAccount(id: account.id) }
+                                        } label: {
+                                            Label("Re-login", systemImage: "person.crop.circle.badge.exclamationmark")
+                                        }
+                                        .disabled(model.hasBlockingOperation)
+                                    }
+
                                     Button {
                                         Task { await model.switchAccount(id: account.id) }
                                     } label: {
@@ -1084,6 +1147,20 @@ struct ManagerWindowView: View {
                             detail: "Choose an account to inspect usage, switch, or remove it."
                         )
                         .padding(.top, 80)
+                    }
+
+                    DetailSection(title: "Settings") {
+                        HStack(alignment: .center, spacing: 10) {
+                            Image(systemName: "power.circle")
+                                .foregroundStyle(CodexVisual.gold)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle("Open at login", isOn: openAtLoginBinding)
+                                    .toggleStyle(.switch)
+                                Text("Start Codex Switch automatically when you sign in.")
+                                    .font(.caption)
+                                    .foregroundStyle(CodexVisual.quietText)
+                            }
+                        }
                     }
 
                     DetailSection(title: "Diagnostics") {

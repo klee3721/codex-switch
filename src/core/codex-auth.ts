@@ -1,11 +1,14 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import type { AuthTokens } from './types'
 
 const REFRESH_ENDPOINT = 'https://auth.openai.com/oauth/token'
 const REFRESH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 const CHATGPT_LOGIN_CONFIG = ['-c', 'forced_login_method="chatgpt"', '-c', 'cli_auth_credentials_store="file"'] as const
+const LOGIN_TIMEOUT_MS = 10 * 60 * 1000
+const LOGIN_AUTH_POLL_MS = 500
+const MAX_LOGIN_OUTPUT_CHARS = 20_000
 
 export type CodexLoginMode = 'browser' | 'device'
 export type CodexLoginStdio = 'inherit' | 'pipe'
@@ -138,42 +141,159 @@ export async function refreshTokens(tokens: AuthTokens): Promise<AuthTokens> {
   return next
 }
 
+async function readValidAuthSnapshot(profileDir: string) {
+  const authPath = path.join(profileDir, 'auth.json')
+
+  try {
+    const raw = await fs.readFile(authPath, 'utf8')
+    const json = JSON.parse(raw) as Record<string, unknown>
+    const tokens = extractAuthTokens(authPath, json)
+    validateChatGptAuth(tokens)
+    return raw
+  } catch {
+    return null
+  }
+}
+
+function appendLoginOutput(current: string, chunk: unknown) {
+  const next = `${current}${String(chunk)}`
+  return next.length > MAX_LOGIN_OUTPUT_CHARS ? next.slice(-MAX_LOGIN_OUTPUT_CHARS) : next
+}
+
+function formatLoginFailure(
+  mode: CodexLoginMode,
+  reason: string,
+  stdout: string,
+  stderr: string,
+  exitCode?: number | null
+) {
+  const hint =
+    mode === 'browser'
+      ? 'Direct browser login did not complete. If the browser handoff is stuck, retry with device auth.'
+      : 'Device auth login did not complete.'
+  const details = (stderr.trim() || stdout.trim()).trim()
+  const exitText = exitCode == null ? '' : ` with exit code ${exitCode}`
+  return `codex login failed${exitText}. ${reason} ${hint}${details ? ` Details: ${details}` : ''}`
+}
+
 export async function runCodexChatGptLogin(
   profileDir: string,
-  options?: { mode?: CodexLoginMode; stdio?: CodexLoginStdio }
+  options?: { mode?: CodexLoginMode; stdio?: CodexLoginStdio; timeoutMs?: number }
 ) {
   const mode = options?.mode ?? 'browser'
   const stdio = options?.stdio ?? 'inherit'
+  const timeoutMs = options?.timeoutMs ?? LOGIN_TIMEOUT_MS
   await fs.mkdir(profileDir, { recursive: true })
+  const initialAuthSnapshot = await readValidAuthSnapshot(profileDir)
   const args = ['login', ...CHATGPT_LOGIN_CONFIG]
   if (mode === 'device') {
     args.push('--device-auth')
   }
 
-  const result = spawnSync('codex', args, {
-    stdio,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      CODEX_HOME: profileDir,
-    },
-  })
+  await new Promise<void>((resolve, reject) => {
+    const result = spawn('codex', args, {
+      stdio: stdio === 'inherit' ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        CODEX_HOME: profileDir,
+      },
+    })
 
-  if (result.error) {
-    throw new Error(`Failed to execute codex login: ${result.error.message}`)
-  }
-  if ((result.status ?? 1) !== 0) {
-    const hint =
-      mode === 'browser'
-        ? 'Direct browser login failed. If you are on a headless terminal, retry with device auth.'
-        : 'Device auth login failed.'
-    const stderr = typeof result.stderr === 'string' ? result.stderr.trim() : ''
-    const stdout = typeof result.stdout === 'string' ? result.stdout.trim() : ''
-    const details = stderr || stdout
-    throw new Error(
-      `codex login failed with exit code ${result.status ?? 'unknown'}. ${hint}${details ? ` Details: ${details}` : ''}`
-    )
-  }
+    let settled = false
+    let closed = false
+    let sentTermination = false
+    let stdout = ''
+    let stderr = ''
+    let isPollingAuth = false
+    let failureReason = 'The login command exited before writing valid auth.'
+    let authPoll: NodeJS.Timeout | null = null
+    let timeout: NodeJS.Timeout | null = null
+    let forceKill: NodeJS.Timeout | null = null
+
+    const cleanup = () => {
+      if (authPoll) clearInterval(authPoll)
+      if (timeout) clearTimeout(timeout)
+      if (forceKill) clearTimeout(forceKill)
+    }
+
+    const finish = (callback: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      callback()
+    }
+
+    const stopLoginProcess = () => {
+      if (closed || sentTermination) return
+      sentTermination = true
+      result.kill('SIGTERM')
+      forceKill = setTimeout(() => {
+        if (!closed) {
+          result.kill('SIGKILL')
+        }
+      }, 2_000)
+    }
+
+    const hasNewValidAuth = async () => {
+      const snapshot = await readValidAuthSnapshot(profileDir)
+      return snapshot != null && snapshot !== initialAuthSnapshot
+    }
+
+    result.stdout?.setEncoding('utf8')
+    result.stderr?.setEncoding('utf8')
+    result.stdout?.on('data', (chunk) => {
+      stdout = appendLoginOutput(stdout, chunk)
+    })
+    result.stderr?.on('data', (chunk) => {
+      stderr = appendLoginOutput(stderr, chunk)
+    })
+
+    result.on('error', (error) => {
+      finish(() => reject(new Error(`Failed to execute codex login: ${error.message}`)))
+    })
+
+    result.on('close', (code) => {
+      closed = true
+      void (async () => {
+        if (settled) return
+        if ((code ?? 1) === 0 || (await hasNewValidAuth())) {
+          finish(resolve)
+          return
+        }
+
+        finish(() =>
+          reject(new Error(formatLoginFailure(mode, failureReason, stdout, stderr, code)))
+        )
+      })()
+    })
+
+    authPoll = setInterval(() => {
+      if (settled || isPollingAuth) return
+      isPollingAuth = true
+      void (async () => {
+        try {
+          if (await hasNewValidAuth()) {
+            stopLoginProcess()
+          }
+        } finally {
+          isPollingAuth = false
+        }
+      })()
+    }, LOGIN_AUTH_POLL_MS)
+
+    timeout = setTimeout(() => {
+      void (async () => {
+        if (settled) return
+        if (await hasNewValidAuth()) {
+          stopLoginProcess()
+          return
+        }
+
+        failureReason = 'Timed out waiting for authentication.'
+        stopLoginProcess()
+      })()
+    }, timeoutMs)
+  })
 }
 
 function decodeBase64Url(input: string) {
