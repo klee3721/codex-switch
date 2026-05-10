@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-private let appGlyphBackground = Color(red: 15 / 255, green: 23 / 255, blue: 32 / 255)
-private let appGlyphForeground = Color(red: 248 / 255, green: 250 / 255, blue: 252 / 255)
+private let criticalUsageThreshold = 5.0
+private let appGlyphBackground = Color.primary
+private let appGlyphForeground = Color(nsColor: .windowBackgroundColor)
 
 private enum CodexVisual {
     static let radiusSM: CGFloat = 10
@@ -12,10 +13,8 @@ private enum CodexVisual {
     static let surface = Color(nsColor: .windowBackgroundColor)
     static let hairline = Color.primary.opacity(0.10)
     static let quietText = Color.secondary.opacity(0.86)
-    static let gold = Color(red: 0.89, green: 0.58, blue: 0.28)
-    static let softYellow = Color(red: 0.88, green: 0.76, blue: 0.34)
-    static let strongYellow = Color(red: 0.94, green: 0.69, blue: 0.18)
-    static let mint = Color(red: 0.28, green: 0.82, blue: 0.46)
+    static let neutralAccent = Color.primary
+    static let criticalAccent = Color(nsColor: .systemRed)
 }
 
 @MainActor
@@ -130,41 +129,30 @@ struct AppGlyph: View {
 }
 
 func statusColor(for account: BridgeAccountSummary?) -> Color {
-    guard let account else { return Color(nsColor: .tertiaryLabelColor) }
+    guard let account else { return CodexVisual.neutralAccent.opacity(0.42) }
 
     switch account.usage.status {
     case .ok:
-        if let remaining = account.fiveHourRemaining {
-            if remaining <= 20 {
-                return Color(nsColor: .systemRed)
-            }
-            if remaining <= 50 {
-                return Color(nsColor: .systemOrange)
-            }
+        if let remaining = account.fiveHourRemaining, remaining <= criticalUsageThreshold {
+            return CodexVisual.criticalAccent
         }
-        return Color(nsColor: .labelColor)
+        return CodexVisual.neutralAccent
     case .stale:
-        return Color(nsColor: .systemOrange)
+        return CodexVisual.neutralAccent
     case .error, .reloginRequired:
-        return Color(nsColor: .systemRed)
+        return CodexVisual.neutralAccent
     case .never:
-        return Color(nsColor: .tertiaryLabelColor)
+        return CodexVisual.neutralAccent.opacity(0.42)
     }
 }
 
 func usageBarColor(for remainingPercent: Double?) -> Color {
-    guard let remainingPercent else { return Color(nsColor: .tertiaryLabelColor) }
+    guard let remainingPercent else { return CodexVisual.neutralAccent.opacity(0.42) }
 
-    if remainingPercent < 20 {
-        return Color(nsColor: .systemRed)
+    if remainingPercent <= criticalUsageThreshold {
+        return CodexVisual.criticalAccent
     }
-    if remainingPercent < 50 {
-        return CodexVisual.strongYellow
-    }
-    if remainingPercent < 80 {
-        return CodexVisual.softYellow
-    }
-    return Color(nsColor: .labelColor)
+    return CodexVisual.neutralAccent
 }
 
 func percentString(_ value: Double?) -> String {
@@ -431,10 +419,10 @@ struct IconCommandButton: View {
                 .frame(height: 28)
                 .background(
                     Capsule(style: .continuous)
-                        .fill(isProminent ? CodexVisual.gold.opacity(0.18) : Color.primary.opacity(0.055))
+                        .fill(isProminent ? CodexVisual.neutralAccent.opacity(0.18) : Color.primary.opacity(0.055))
                         .overlay(
                             Capsule(style: .continuous)
-                                .strokeBorder(isProminent ? CodexVisual.gold.opacity(0.30) : Color.primary.opacity(0.07))
+                                .strokeBorder(isProminent ? CodexVisual.neutralAccent.opacity(0.30) : Color.primary.opacity(0.07))
                         )
                 )
         }
@@ -445,7 +433,7 @@ struct IconCommandButton: View {
 
 struct ManagerMetricCard<ValueContent: View, NoteContent: View>: View {
     let title: String
-    var tint: Color = CodexVisual.gold
+    var tint: Color = CodexVisual.neutralAccent
     @ViewBuilder let valueContent: () -> ValueContent
     @ViewBuilder let noteContent: () -> NoteContent
 
@@ -494,7 +482,7 @@ struct EmptyStateView: View {
             VStack(alignment: .leading, spacing: 9) {
                 Image(systemName: "person.crop.circle.badge.plus")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(CodexVisual.gold)
+                    .foregroundStyle(CodexVisual.neutralAccent)
                 Text(title)
                     .font(.title3.weight(.semibold))
                 Text(detail)
@@ -545,11 +533,8 @@ struct StatusBarLabelView: View {
 private func statusBarUsageColor(for remainingPercent: Double?) -> Color {
     guard let remainingPercent else { return Color.white.opacity(0.40) }
 
-    if remainingPercent < 20 {
-        return Color(nsColor: .systemRed)
-    }
-    if remainingPercent < 50 {
-        return CodexVisual.strongYellow
+    if remainingPercent <= criticalUsageThreshold {
+        return CodexVisual.criticalAccent
     }
     return Color.white
 }
@@ -560,13 +545,13 @@ struct BannerView: View {
     var color: Color {
         switch banner.kind {
         case .info:
-            return .blue
+            return CodexVisual.neutralAccent
         case .success:
-            return .green
+            return CodexVisual.neutralAccent
         case .warning:
-            return .orange
+            return CodexVisual.neutralAccent
         case .error:
-            return .red
+            return CodexVisual.neutralAccent
         }
     }
 
@@ -767,7 +752,7 @@ struct AccountRowView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
-                    StatusDot(color: account.isActive ? CodexVisual.mint : Color.primary.opacity(0.16), size: account.isActive ? 8 : 7)
+                    StatusDot(color: account.isActive ? CodexVisual.neutralAccent : Color.primary.opacity(0.16), size: account.isActive ? 8 : 7)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(account.displayName)
@@ -825,7 +810,7 @@ struct ManagerSidebarAccountRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 9) {
-                StatusDot(color: account.isActive ? CodexVisual.mint : Color.primary.opacity(0.16), size: 8)
+                StatusDot(color: account.isActive ? CodexVisual.neutralAccent : Color.primary.opacity(0.16), size: 8)
                 Text(account.displayName)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
@@ -860,7 +845,7 @@ struct DetailHeaderView: View {
                     .truncationMode(.tail)
 
                 HStack(spacing: 8) {
-                    StatusDot(color: account.isActive ? CodexVisual.mint : Color.primary.opacity(0.18), size: 7)
+                    StatusDot(color: account.isActive ? CodexVisual.neutralAccent : Color.primary.opacity(0.18), size: 7)
                     Text(account.isActive ? "Active profile" : statusNote(for: account))
                     if let email = account.email {
                         Text("•")
@@ -931,7 +916,7 @@ struct AddAccountSheet: View {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: deviceAuth ? "number.square.fill" : "safari.fill")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(CodexVisual.gold)
+                        .foregroundStyle(CodexVisual.neutralAccent)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Toggle("Use device auth", isOn: $deviceAuth)
@@ -1018,7 +1003,7 @@ struct MenuContentView: View {
                 .overlay(
                     LinearGradient(
                         colors: [
-                            CodexVisual.gold.opacity(0.055),
+                            CodexVisual.neutralAccent.opacity(0.055),
                             Color.clear,
                         ],
                         startPoint: .topLeading,
@@ -1085,7 +1070,7 @@ struct ManagerWindowView: View {
                                 )
                                 ManagerMetricCard(
                                     title: "Weekly Remaining",
-                                    tint: CodexVisual.gold,
+                                    tint: CodexVisual.neutralAccent,
                                     valueContent: {
                                         Text(percentString(account.weeklyRemaining))
                                     },
@@ -1095,7 +1080,7 @@ struct ManagerWindowView: View {
                                 )
                                 ManagerMetricCard(
                                     title: "Updated",
-                                    tint: Color(nsColor: .systemBlue),
+                                    tint: CodexVisual.neutralAccent,
                                     valueContent: {
                                         RelativeTimestampText(prefix: "", milliseconds: account.usage.updatedAt)
                                     },
@@ -1105,7 +1090,7 @@ struct ManagerWindowView: View {
                                 )
                                 ManagerMetricCard(
                                     title: "Plan",
-                                    tint: Color(nsColor: .systemPurple),
+                                    tint: CodexVisual.neutralAccent,
                                     valueContent: {
                                         Text((account.usage.planType ?? "unknown").uppercased())
                                     },
@@ -1129,7 +1114,7 @@ struct ManagerWindowView: View {
 
                                 HStack(alignment: .top, spacing: 10) {
                                     Image(systemName: "folder")
-                                        .foregroundStyle(CodexVisual.gold)
+                                        .foregroundStyle(CodexVisual.neutralAccent)
                                     Text(account.profileDir)
                                         .font(.caption)
                                         .foregroundStyle(CodexVisual.quietText)
@@ -1181,7 +1166,7 @@ struct ManagerWindowView: View {
                     DetailSection(title: "Settings") {
                         HStack(alignment: .center, spacing: 10) {
                             Image(systemName: "power.circle")
-                                .foregroundStyle(CodexVisual.gold)
+                                .foregroundStyle(CodexVisual.neutralAccent)
                             VStack(alignment: .leading, spacing: 4) {
                                 Toggle("Open at login", isOn: openAtLoginBinding)
                                     .toggleStyle(.switch)
@@ -1209,7 +1194,7 @@ struct ManagerWindowView: View {
                             ForEach(doctor.checks) { check in
                                 VStack(alignment: .leading, spacing: 5) {
                                     HStack(spacing: 8) {
-                                        StatusDot(color: check.ok ? CodexVisual.mint : .orange, size: 7)
+                                        StatusDot(color: CodexVisual.neutralAccent, size: 7)
                                         Text(check.name)
                                             .font(.subheadline.weight(.medium))
                                     }
