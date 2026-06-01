@@ -1,8 +1,37 @@
 {
-  "name": "codex-switch",
+  "name": "@khanh21011999/codex-switch",
   "version": "0.1.0",
   "description": "Terminal CLI to switch Codex ChatGPT accounts and track 5h/weekly usage",
   "type": "module",
+  "license": "MIT",
+  "author": "Khanh Le Quoc",
+  "homepage": "https://github.com/khanh21011999/codex-switch#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khanh21011999/codex-switch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/khanh21011999/codex-switch/issues"
+  },
+  "keywords": [
+    "codex",
+    "chatgpt",
+    "cli",
+    "tui",
+    "account-switcher"
+  ],
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  },
   "bin": {
     "codex-switch": "./dist/cli.js"
   },
@@ -10,6 +39,11 @@
     "dev": "bun run src/cli.ts",
     "build": "rm -rf dist && tsc --outDir dist && chmod +x dist/cli.js",
     "typecheck": "tsc --noEmit",
+    "test": "bun run build && bun run test:js && bun run test:macos",
+    "test:js": "bun test tests/*.test.mjs",
+    "test:macos": "swift test --package-path apps/macos",
+    "pack:dry-run": "bun pm pack --dry-run",
+    "prepack": "bun run build",
     "build:macos": "swift build --package-path apps/macos",
     "build:macos:app": "bash scripts/build-macos-app.sh"
   },

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { chmodPrivateFile, ensurePrivateDir, writePrivateFile } from './store'
 import type { AuthTokens } from './types'
 
 const REFRESH_ENDPOINT = 'https://auth.openai.com/oauth/token'
@@ -23,6 +24,8 @@ function parseLastRefresh(value: unknown): Date | null {
 export async function readAuthFile(profileDir: string) {
   const authPath = path.join(profileDir, 'auth.json')
   const raw = await fs.readFile(authPath, 'utf8')
+  await ensurePrivateDir(profileDir)
+  await chmodPrivateFile(authPath)
   const json = JSON.parse(raw) as Record<string, unknown>
   return { authPath, json }
 }
@@ -95,10 +98,7 @@ export async function saveAuthTokens(tokens: AuthTokens) {
     tokens: nextTokens,
   }
 
-  const tmpPath = `${tokens.authPath}.tmp`
-  await fs.mkdir(path.dirname(tokens.authPath), { recursive: true })
-  await fs.writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
-  await fs.rename(tmpPath, tokens.authPath)
+  await writePrivateFile(tokens.authPath, `${JSON.stringify(payload, null, 2)}\n`)
 }
 
 export function needsRefresh(tokens: AuthTokens) {
@@ -183,7 +183,7 @@ export async function runCodexChatGptLogin(
   const mode = options?.mode ?? 'browser'
   const stdio = options?.stdio ?? 'inherit'
   const timeoutMs = options?.timeoutMs ?? LOGIN_TIMEOUT_MS
-  await fs.mkdir(profileDir, { recursive: true })
+  await ensurePrivateDir(profileDir)
   const initialAuthSnapshot = await readValidAuthSnapshot(profileDir)
   const args = ['login', ...CHATGPT_LOGIN_CONFIG]
   if (mode === 'device') {
@@ -294,6 +294,8 @@ export async function runCodexChatGptLogin(
       })()
     }, timeoutMs)
   })
+
+  await chmodPrivateFile(path.join(profileDir, 'auth.json'))
 }
 
 function decodeBase64Url(input: string) {

@@ -1,3 +1,25 @@
+# Dependencies
 node_modules/
+
+# JavaScript build/test output
 dist/
+coverage/
+
+# Swift/macOS build output
+apps/macos/.build/
+apps/macos/.icon-build/
+apps/macos/dist/
+.build/
+.swiftpm/
+
+# Local environment and tool state
+.env
+.env.*
+!.env.example
+.codex/
+.codex-switch/
+.claude/settings.local.json
+
+# Logs and OS files
+*.log
 .DS_Store

@@ -1,4 +1,4 @@
-import test from 'node:test'
+import { test } from 'bun:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -63,10 +63,14 @@ test('runCodexChatGptLogin completes when piped login writes auth but keeps runn
     })
 
     const elapsedMs = Date.now() - startedAt
-    const authJson = JSON.parse(await fs.readFile(path.join(profileDir, 'auth.json'), 'utf8'))
+    const authPath = path.join(profileDir, 'auth.json')
+    const authJson = JSON.parse(await fs.readFile(authPath, 'utf8'))
 
     assert.equal(authJson.auth_mode, 'chatgpt')
     assert.ok(elapsedMs < 4_000)
+    if (process.platform !== 'win32') {
+      assert.equal((await fs.stat(authPath)).mode & 0o777, 0o600)
+    }
   })
 })
 

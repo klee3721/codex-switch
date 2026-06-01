@@ -11,6 +11,9 @@ const BACKUPS_DIR = path.join(SWITCH_HOME, 'backups')
 const CODEX_HOME = path.join(os.homedir(), '.codex')
 const CODEX_AUTH_PATH = path.join(CODEX_HOME, 'auth.json')
 
+export const PRIVATE_DIR_MODE = 0o700
+export const PRIVATE_FILE_MODE = 0o600
+
 export function getPaths() {
   return {
     switchHome: SWITCH_HOME,
@@ -20,6 +23,30 @@ export function getPaths() {
     codexHome: CODEX_HOME,
     codexAuthPath: CODEX_AUTH_PATH,
   }
+}
+
+export async function ensurePrivateDir(dirPath: string) {
+  await fs.mkdir(dirPath, { recursive: true, mode: PRIVATE_DIR_MODE })
+  await fs.chmod(dirPath, PRIVATE_DIR_MODE)
+}
+
+export async function chmodPrivateFile(filePath: string) {
+  await fs.chmod(filePath, PRIVATE_FILE_MODE)
+}
+
+export async function writePrivateFile(filePath: string, contents: string | Uint8Array) {
+  await ensurePrivateDir(path.dirname(filePath))
+  const tmpPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`
+  await fs.writeFile(tmpPath, contents, { mode: PRIVATE_FILE_MODE })
+  await chmodPrivateFile(tmpPath)
+  await fs.rename(tmpPath, filePath)
+  await chmodPrivateFile(filePath)
+}
+
+export async function copyPrivateFile(sourcePath: string, destinationPath: string) {
+  await ensurePrivateDir(path.dirname(destinationPath))
+  await fs.copyFile(sourcePath, destinationPath)
+  await chmodPrivateFile(destinationPath)
 }
 
 export function buildEmptyUsageWindow(): UsageWindow {
@@ -51,9 +78,9 @@ export function buildDefaultState(): AppState {
 }
 
 export async function ensureSwitchDirs() {
-  await fs.mkdir(SWITCH_HOME, { recursive: true })
-  await fs.mkdir(PROFILES_DIR, { recursive: true })
-  await fs.mkdir(BACKUPS_DIR, { recursive: true })
+  await ensurePrivateDir(SWITCH_HOME)
+  await ensurePrivateDir(PROFILES_DIR)
+  await ensurePrivateDir(BACKUPS_DIR)
 }
 
 function clampPercent(value: unknown): number | null {
@@ -151,6 +178,12 @@ export async function readState(): Promise<AppState> {
   await ensureSwitchDirs()
   try {
     const contents = await fs.readFile(STATE_PATH, 'utf8')
+    try {
+      await chmodPrivateFile(STATE_PATH)
+    } catch {
+      // Older state files should be tightened opportunistically, but a chmod
+      // failure should not make the account list disappear.
+    }
     const json = JSON.parse(contents) as unknown
     return sanitizeState(json)
   } catch {
@@ -161,9 +194,7 @@ export async function readState(): Promise<AppState> {
 export async function writeState(state: AppState) {
   await ensureSwitchDirs()
   const sanitized = sanitizeState(state)
-  const tmpPath = `${STATE_PATH}.${process.pid}.${randomUUID()}.tmp`
-  await fs.writeFile(tmpPath, `${JSON.stringify(sanitized, null, 2)}\n`, 'utf8')
-  await fs.rename(tmpPath, STATE_PATH)
+  await writePrivateFile(STATE_PATH, `${JSON.stringify(sanitized, null, 2)}\n`)
 }
 
 export function resolveAccountByIdentifier(state: AppState, identifier: string) {

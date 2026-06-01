@@ -16,6 +16,9 @@ import { switchToAccount } from './switch'
 import {
   buildEmptyUsageSnapshot,
   buildDefaultState,
+  chmodPrivateFile,
+  copyPrivateFile,
+  ensurePrivateDir,
   ensureSwitchDirs,
   getPaths,
   readState,
@@ -137,11 +140,11 @@ async function syncCurrentCodexFilesToProfile(profileDir: string) {
   const profileConfigPath = path.join(profileDir, 'config.toml')
   const sourceConfigPath = path.join(paths.codexHome, 'config.toml')
 
-  await fs.mkdir(profileDir, { recursive: true })
-  await fs.copyFile(paths.codexAuthPath, profileAuthPath)
+  await ensurePrivateDir(profileDir)
+  await copyPrivateFile(paths.codexAuthPath, profileAuthPath)
 
   try {
-    await fs.copyFile(sourceConfigPath, profileConfigPath)
+    await copyPrivateFile(sourceConfigPath, profileConfigPath)
   } catch {
     // Config might not exist; ignore.
   }
@@ -292,7 +295,9 @@ function dedupeAccountsBySignature(accounts: Account[], activeAccountId: string 
 
 async function fetchCurrentCodexTokens() {
   const paths = getPaths()
+  await ensurePrivateDir(paths.codexHome)
   const raw = await fs.readFile(paths.codexAuthPath, 'utf8')
+  await chmodPrivateFile(paths.codexAuthPath)
   const json = JSON.parse(raw) as Record<string, unknown>
   const tokens = extractAuthTokens(paths.codexAuthPath, json)
   validateChatGptAuth(tokens)
@@ -426,7 +431,7 @@ export async function addAccount(label: string, options?: AddAccountOptions): Pr
   const id = createAccountId(trimmed)
   const profileDir = path.join(paths.profilesDir, id)
 
-  await fs.mkdir(profileDir, { recursive: true })
+  await ensurePrivateDir(profileDir)
 
   try {
     await runCodexChatGptLogin(profileDir, {

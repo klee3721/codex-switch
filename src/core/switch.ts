@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { getPaths } from './store'
+import { chmodPrivateFile, copyPrivateFile, ensurePrivateDir, getPaths } from './store'
 import type { Account, SwitchResult } from './types'
 
 const CODEX_APP_PATH = '/Applications/Codex.app'
@@ -52,8 +52,10 @@ export async function switchToAccount(account: Account): Promise<SwitchResult> {
   const paths = getPaths()
   const sourceAuth = path.join(account.profileDir, 'auth.json')
 
-  await fs.mkdir(paths.codexHome, { recursive: true })
-  await fs.mkdir(paths.backupsDir, { recursive: true })
+  await ensurePrivateDir(paths.codexHome)
+  await ensurePrivateDir(paths.backupsDir)
+  await ensurePrivateDir(account.profileDir)
+  await chmodPrivateFile(sourceAuth)
 
   await fs.access(sourceAuth)
 
@@ -61,12 +63,12 @@ export async function switchToAccount(account: Account): Promise<SwitchResult> {
   try {
     await fs.access(paths.codexAuthPath)
     backupPath = path.join(paths.backupsDir, `${timestampForFile()}-auth.json`)
-    await fs.copyFile(paths.codexAuthPath, backupPath)
+    await copyPrivateFile(paths.codexAuthPath, backupPath)
   } catch {
     backupPath = null
   }
 
-  await fs.copyFile(sourceAuth, paths.codexAuthPath)
+  await copyPrivateFile(sourceAuth, paths.codexAuthPath)
   await restartCodexDesktopApp()
 
   const statusResult = spawnSync('codex', ['login', 'status'], {
