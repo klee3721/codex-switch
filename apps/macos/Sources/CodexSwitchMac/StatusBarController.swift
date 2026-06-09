@@ -3,11 +3,12 @@ import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject, NSPopoverDelegate {
-    private static let itemWidth: CGFloat = 38
+    private static let itemWidth: CGFloat = 50
 
     private let statusItem: NSStatusItem
     private let popover: NSPopover
     private let model: CodexSwitchAppModel
+    private let openManager: @MainActor () -> Void
     private let hostingView: NSHostingView<AnyView>
     private let statusMenu: NSMenu
     private let performanceMonitor = MenuPerformanceMonitor()
@@ -15,8 +16,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
 
-    init(model: CodexSwitchAppModel) {
+    init(model: CodexSwitchAppModel, openManager: @escaping @MainActor () -> Void) {
         self.model = model
+        self.openManager = openManager
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.popover = NSPopover()
         self.statusMenu = NSMenu()
@@ -40,6 +42,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         }
 
         performanceMonitor.markOpenRequested()
+        updatePopoverContentSize()
 
         let anchorRect = NSRect(
             x: button.bounds.midX - 1,
@@ -74,8 +77,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     @objc
     func openManagerWindow(_ sender: Any?) {
-        NSApp.sendAction(#selector(NSWindowController.showWindow(_:)), to: nil, from: nil)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        openManager()
     }
 
     @objc
@@ -163,14 +165,36 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         popover.delegate = self
         popover.behavior = .applicationDefined
         popover.animates = true
-        popover.contentSize = NSSize(width: 384, height: 560)
+        updatePopoverContentSize()
         popover.contentViewController = NSHostingController(
             rootView: MenuContentView(
+                openManagerWindow: { [weak self] in
+                    self?.openManagerWindow(nil)
+                },
                 onAppear: { [weak self] in
                     self?.performanceMonitor.menuContentDidAppear()
                 }
             )
             .environmentObject(model)
+        )
+    }
+
+    private func updatePopoverContentSize() {
+        let showsBanner: Bool
+        if let banner = model.banner {
+            switch banner.kind {
+            case .success:
+                showsBanner = false
+            case .info, .warning, .error:
+                showsBanner = true
+            }
+        } else {
+            showsBanner = false
+        }
+
+        popover.contentSize = NSSize(
+            width: 384,
+            height: menuPopoverHeight(accountCount: model.accounts.count, showsBanner: showsBanner)
         )
     }
 
@@ -228,6 +252,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     func popoverWillShow(_ notification: Notification) {
+        updatePopoverContentSize()
         performanceMonitor.menuWillShow()
     }
 

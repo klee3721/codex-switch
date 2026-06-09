@@ -160,6 +160,11 @@ func percentString(_ value: Double?) -> String {
     return value.percentText
 }
 
+func statusBarNumberString(_ value: Double?) -> String {
+    guard let value else { return "n/a" }
+    return "\(Int(value.rounded()))"
+}
+
 @MainActor
 func relativeTimestamp(from milliseconds: Double?) -> String {
     guard let date = dateFromMillis(milliseconds) else { return "Never" }
@@ -215,6 +220,38 @@ func statusNote(for account: BridgeAccountSummary?) -> String {
     }
 }
 
+func visibleStatusNote(for account: BridgeAccountSummary?) -> String? {
+    let note = statusNote(for: account)
+    return note == "Ready" ? nil : note
+}
+
+func menuPopoverHeight(accountCount: Int, showsBanner: Bool) -> CGFloat {
+    let visibleAccountCount = max(0, min(accountCount, 4))
+    let rowHeight: CGFloat = 76
+    let dividerHeight: CGFloat = 5
+    let accountsHeight: CGFloat
+
+    if accountCount == 0 {
+        accountsHeight = 88
+    } else {
+        accountsHeight = (CGFloat(visibleAccountCount) * rowHeight) + (CGFloat(max(visibleAccountCount - 1, 0)) * dividerHeight)
+    }
+
+    let bannerHeight: CGFloat = showsBanner ? 52 : 0
+    let height = CGFloat(32 + 156 + 28 + 1 + 39) + bannerHeight + accountsHeight
+    return min(560, max(320, height))
+}
+
+func menuAccountsListMaxHeight(accountCount: Int) -> CGFloat {
+    guard accountCount > 0 else { return 0 }
+
+    let visibleAccountCount = min(accountCount, 4)
+    let rowHeight: CGFloat = 76
+    let dividerHeight: CGFloat = 5
+
+    return (CGFloat(visibleAccountCount) * rowHeight) + (CGFloat(max(visibleAccountCount - 1, 0)) * dividerHeight)
+}
+
 struct RelativeTimestampText: View {
     let prefix: String
     let milliseconds: Double?
@@ -246,18 +283,18 @@ struct CompactUsageBar: View {
         let normalized = max(0, min((percent ?? 0) / 100, 1))
 
         Capsule()
-            .fill(Color.primary.opacity(0.075))
+            .fill(Color.primary.opacity(0.18))
             .overlay(
                 Capsule()
-                    .strokeBorder(Color.primary.opacity(0.05))
+                    .strokeBorder(Color.primary.opacity(0.12))
             )
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(
                         LinearGradient(
                             colors: [
-                                color.opacity(0.72),
-                                color.opacity(0.96),
+                                color.opacity(0.92),
+                                color,
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
@@ -500,43 +537,90 @@ struct StatusBarLabelView: View {
     var body: some View {
         let account = model.activeAccount
         let remaining = account?.fiveHourRemaining
+        let tint = statusBarUsageColor(for: remaining)
 
         ZStack {
-            CompactUsageBar(
-                percent: remaining,
-                color: statusBarUsageColor(for: remaining),
-                height: 7
-            )
-                .frame(width: 30, height: 7)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.38))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.88), lineWidth: 0.9)
-                )
-                .shadow(color: Color.black.opacity(0.40), radius: 0.5, y: 0.5)
-                .opacity(model.currentOperation == nil ? 1 : 0)
+            HStack(spacing: 1) {
+                Text(statusBarNumberString(remaining))
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .foregroundStyle(Color.white.opacity(0.96))
+                    .frame(width: 18, alignment: .trailing)
+
+                StatusBarBatteryMeter(percent: remaining, fill: tint, height: 10)
+                    .frame(width: 30, height: 10)
+            }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Remaining five-hour usage")
                 .accessibilityValue(percentString(remaining))
+                .opacity(model.currentOperation == nil ? 1 : 0)
 
             if model.currentOperation != nil {
                 ProgressView()
                     .controlSize(.small)
-                    .scaleEffect(0.75)
+                    .scaleEffect(0.70)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.primary.opacity(0.18))
+                            .frame(width: 30, height: 12)
+                    )
             }
         }
-        .frame(width: 38, alignment: .center)
+        .frame(maxWidth: .infinity, minHeight: 14, alignment: .leading)
+    }
+}
+
+struct StatusBarBatteryMeter: View {
+    let percent: Double?
+    let fill: Color
+    var height: CGFloat = 10
+
+    private var normalizedPercent: CGFloat {
+        CGFloat(max(0, min((percent ?? 0) / 100, 1)))
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let percentFillWidth = proxy.size.width * normalizedPercent
+            let shape = Capsule(style: .continuous)
+
+            ZStack(alignment: .leading) {
+                shape
+                    .fill(Color.black.opacity(0.58))
+                    .overlay(
+                        shape.strokeBorder(Color.white.opacity(0.38), lineWidth: 0.75)
+                    )
+
+                shape
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                fill.opacity(0.92),
+                                fill,
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: percentFillWidth)
+            }
+        }
+        .frame(height: height)
+        .clipShape(Capsule(style: .continuous))
+        .accessibilityLabel("Remaining five-hour usage")
+        .accessibilityValue(percentString(percent))
     }
 }
 
 private func statusBarUsageColor(for remainingPercent: Double?) -> Color {
-    guard let remainingPercent else { return Color.white.opacity(0.40) }
+    guard let remainingPercent else { return Color.primary.opacity(0.18) }
 
     if remainingPercent <= criticalUsageThreshold {
         return CodexVisual.criticalAccent
     }
-    return Color.white
+    return Color.primary
 }
 
 struct BannerView: View {
@@ -627,22 +711,24 @@ struct MenuHeaderView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 6) {
-                        StatusDot(color: tint, size: 7)
-                        Text(statusNote(for: account))
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.primary.opacity(0.82))
+                    if let note = visibleStatusNote(for: account) {
+                        HStack(spacing: 6) {
+                            StatusDot(color: tint, size: 7)
+                            Text(note)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.primary.opacity(0.82))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(tint.opacity(0.10))
+                                .overlay(
+                                    Capsule(style: .continuous)
+                                        .strokeBorder(tint.opacity(0.16))
+                                )
+                        )
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(tint.opacity(0.10))
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .strokeBorder(tint.opacity(0.16))
-                            )
-                    )
                 }
 
                 DualUsageView(
@@ -683,12 +769,7 @@ struct MenuHeaderView: View {
 
 struct ActionStripView: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
-    @Environment(\.openWindow) private var openWindow
-
-    private func openManagerWindow() {
-        openWindow(id: "manager")
-        NSApplication.shared.activate(ignoringOtherApps: true)
-    }
+    let openManagerWindow: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -772,9 +853,11 @@ struct AccountRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: 6) {
-                    Text(statusNote(for: account))
-                    Text("•")
-                        .foregroundStyle(Color.primary.opacity(0.24))
+                    if let note = visibleStatusNote(for: account) {
+                        Text(note)
+                        Text("•")
+                            .foregroundStyle(Color.primary.opacity(0.24))
+                    }
                     Text(resetDate(from: account.usage.weekly.resetAt))
                         .monospacedDigit()
                 }
@@ -830,6 +913,8 @@ struct DetailHeaderView: View {
     let account: BridgeAccountSummary
 
     var body: some View {
+        let note = visibleStatusNote(for: account)
+
         HStack(alignment: .center, spacing: 14) {
             ZStack {
                 Circle()
@@ -846,10 +931,16 @@ struct DetailHeaderView: View {
 
                 HStack(spacing: 8) {
                     StatusDot(color: account.isActive ? CodexVisual.neutralAccent : Color.primary.opacity(0.18), size: 7)
-                    Text(account.isActive ? "Active profile" : statusNote(for: account))
+                    if account.isActive {
+                        Text("Active profile")
+                    } else if let note {
+                        Text(note)
+                    }
                     if let email = account.email {
-                        Text("•")
-                            .foregroundStyle(Color.primary.opacity(0.24))
+                        if account.isActive || note != nil {
+                            Text("•")
+                                .foregroundStyle(Color.primary.opacity(0.24))
+                        }
                         Text(email)
                             .truncationMode(.middle)
                     }
@@ -951,8 +1042,8 @@ struct AddAccountSheet: View {
 
 struct MenuContentView: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
+    let openManagerWindow: () -> Void
     var onAppear: (() -> Void)? = nil
-    private let maxAccountsListHeight: CGFloat = 352
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -962,7 +1053,7 @@ struct MenuContentView: View {
                 BannerView(banner: banner)
             }
 
-            ActionStripView()
+            ActionStripView(openManagerWindow: openManagerWindow)
 
             SectionDivider()
 
@@ -993,7 +1084,7 @@ struct MenuContentView: View {
                         }
                     }
                 }
-                .frame(maxHeight: maxAccountsListHeight, alignment: .top)
+                .frame(maxHeight: menuAccountsListMaxHeight(accountCount: model.accounts.count), alignment: .top)
             }
         }
         .padding(16)
@@ -1107,7 +1198,7 @@ struct ManagerWindowView: View {
                                         .foregroundStyle(CodexVisual.quietText)
                                         .textSelection(.enabled)
                                 } else if account.usage.status != .ok {
-                                    Text(statusNote(for: account))
+                                    Text(visibleStatusNote(for: account) ?? "")
                                         .font(.caption)
                                         .foregroundStyle(CodexVisual.quietText)
                                 }
