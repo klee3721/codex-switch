@@ -43,6 +43,48 @@ func menuPerformanceMonitorCanBeEnabledFromEnvironment() {
 }
 
 @Test
+func appModelInitDoesNotSynchronouslyRefreshOpenAtLoginStatus() throws {
+    let sourceURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/CodexSwitchMac/CodexSwitchAppModel.swift")
+    let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    guard
+        let initStart = source.range(of: "    init() {"),
+        let initEnd = source[initStart.upperBound...].range(of: "    var accounts:")
+    else {
+        Issue.record("Could not locate CodexSwitchAppModel.init() in source")
+        return
+    }
+
+    let initializerBody = source[initStart.upperBound..<initEnd.lowerBound]
+
+    #expect(!initializerBody.contains("refreshOpenAtLoginStatus()"))
+}
+
+@Test
+func appModelManagerOpenedDoesNotSynchronouslyRefreshOpenAtLoginStatus() throws {
+    let sourceURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/CodexSwitchMac/CodexSwitchAppModel.swift")
+    let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    guard
+        let methodStart = source.range(of: "    func managerOpened() {"),
+        let methodEnd = source[methodStart.upperBound...].range(of: "    func openAddAccountFlow()")
+    else {
+        Issue.record("Could not locate CodexSwitchAppModel.managerOpened() in source")
+        return
+    }
+
+    let methodBody = source[methodStart.upperBound..<methodEnd.lowerBound]
+
+    #expect(!methodBody.contains("refreshOpenAtLoginStatus()"))
+}
+
+@Test
 func bundledBridgeDirectoryFindsBridgeInResourcesRoot() throws {
     try withTemporaryDirectory { directory in
         let bridgeDirectory = directory.appendingPathComponent("bridge", isDirectory: true)

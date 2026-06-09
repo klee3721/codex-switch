@@ -43,7 +43,6 @@ final class CodexSwitchAppModel: ObservableObject {
         }
 
         startTimers()
-        refreshOpenAtLoginStatus()
 
         Task {
             await bootstrap()
