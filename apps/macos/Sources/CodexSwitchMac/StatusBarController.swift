@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject, NSPopoverDelegate {
-    private static let itemWidth: CGFloat = 50
+    private static let itemWidth: CGFloat = 34
 
     private let statusItem: NSStatusItem
     private let popover: NSPopover

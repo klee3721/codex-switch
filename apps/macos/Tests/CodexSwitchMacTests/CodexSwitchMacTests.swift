@@ -147,7 +147,7 @@ func statusBarItemUsesCompactWidth() throws {
         .appendingPathComponent("Sources/CodexSwitchMac/StatusBarController.swift")
     let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
-    #expect(source.contains("private static let itemWidth: CGFloat = 50"))
+    #expect(source.contains("private static let itemWidth: CGFloat = 34"))
 }
 
 @Test
