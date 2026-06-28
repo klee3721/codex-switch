@@ -125,13 +125,12 @@ func statusBarLabelUsesBatteryStyleMeter() throws {
     let viewEnd = try #require(source[viewStart.upperBound...].range(of: "struct StatusBarBatteryMeter"))
     let viewSource = source[viewStart.lowerBound..<viewEnd.lowerBound]
 
-    #expect(viewSource.contains("HStack(spacing: 1)"))
-    #expect(viewSource.contains("Text(statusBarNumberString(remaining))"))
+    #expect(!viewSource.contains("Text(statusBarNumberString(remaining))"))
     #expect(viewSource.contains("StatusBarBatteryMeter(percent: remaining"))
     #expect(viewSource.contains("height: 10"))
     #expect(viewSource.contains(".frame(width: 30, height: 10)"))
-    #expect(viewSource.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
-    #expect(viewSource.contains(".frame(maxWidth: .infinity, minHeight: 14, alignment: .leading)"))
+    #expect(viewSource.contains(".frame(maxWidth: .infinity, alignment: .center)"))
+    #expect(viewSource.contains(".frame(maxWidth: .infinity, minHeight: 14, alignment: .center)"))
     #expect(!viewSource.contains("CompactUsageBar(percent: remaining"))
     #expect(!viewSource.contains(".frame(width: 58"))
     #expect(!viewSource.contains(".padding("))
@@ -193,23 +192,7 @@ func statusBarBatteryMeterDoesNotOverlayNumberText() throws {
     #expect(!meterSource.contains("statusBarUsageTextColor"))
 }
 
-@Test
-func statusBarLabelPlacesNumberOutsideMeterOnLeft() throws {
-    let sourceURL = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("Sources/CodexSwitchMac/Views.swift")
-    let source = try String(contentsOf: sourceURL, encoding: .utf8)
-    let viewStart = try #require(source.range(of: "struct StatusBarLabelView: View"))
-    let viewEnd = try #require(source[viewStart.upperBound...].range(of: "struct StatusBarBatteryMeter"))
-    let viewSource = source[viewStart.lowerBound..<viewEnd.lowerBound]
-    let textRange = try #require(viewSource.range(of: "Text(statusBarNumberString(remaining))"))
-    let meterRange = try #require(viewSource.range(of: "StatusBarBatteryMeter(percent: remaining"))
 
-    #expect(textRange.lowerBound < meterRange.lowerBound)
-    #expect(viewSource.contains(".accessibilityValue(percentString(remaining))"))
-}
 
 @Test
 func appModelInitDoesNotSynchronouslyRefreshOpenAtLoginStatus() throws {

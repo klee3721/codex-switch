@@ -547,19 +547,9 @@ struct StatusBarLabelView: View {
         let tint = statusBarUsageColor(for: remaining)
 
         ZStack {
-            HStack(spacing: 1) {
-                Text(statusBarNumberString(remaining))
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.65)
-                    .foregroundStyle(Color.white.opacity(0.96))
-                    .frame(width: 18, alignment: .trailing)
-
-                StatusBarBatteryMeter(percent: remaining, fill: tint, height: 10)
-                    .frame(width: 30, height: 10)
-            }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            StatusBarBatteryMeter(percent: remaining, fill: tint, height: 10)
+                .frame(width: 30, height: 10)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityLabel("Remaining five-hour usage")
                 .accessibilityValue(percentString(remaining))
                 .opacity(model.currentOperation == nil ? 1 : 0)
@@ -575,7 +565,7 @@ struct StatusBarLabelView: View {
                     )
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 14, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 14, alignment: .center)
     }
 }
 
