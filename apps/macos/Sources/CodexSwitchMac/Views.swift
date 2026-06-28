@@ -13,8 +13,24 @@ private enum CodexVisual {
     static let surface = Color(nsColor: .windowBackgroundColor)
     static let hairline = Color.primary.opacity(0.10)
     static let quietText = Color.secondary.opacity(0.86)
-    static let neutralAccent = Color.primary
-    static let criticalAccent = Color(nsColor: .systemRed)
+    static var neutralAccent: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            if appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil {
+                return NSColor(red: 129/255, green: 140/255, blue: 248/255, alpha: 1.0)
+            } else {
+                return NSColor(red: 79/255, green: 70/255, blue: 229/255, alpha: 1.0)
+            }
+        })
+    }
+    static var criticalAccent: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            if appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil {
+                return NSColor(red: 248/255, green: 113/255, blue: 113/255, alpha: 1.0)
+            } else {
+                return NSColor(red: 220/255, green: 38/255, blue: 38/255, alpha: 1.0)
+            }
+        })
+    }
 }
 
 @MainActor
@@ -226,30 +242,21 @@ func visibleStatusNote(for account: BridgeAccountSummary?) -> String? {
 }
 
 func menuPopoverHeight(accountCount: Int, showsBanner: Bool) -> CGFloat {
-    let visibleAccountCount = max(0, min(accountCount, 4))
-    let rowHeight: CGFloat = 76
-    let dividerHeight: CGFloat = 5
+    let rowHeight: CGFloat = 60
+    let dividerHeight: CGFloat = 9
     let accountsHeight: CGFloat
 
     if accountCount == 0 {
-        accountsHeight = 88
+        accountsHeight = 90
     } else {
-        accountsHeight = (CGFloat(visibleAccountCount) * rowHeight) + (CGFloat(max(visibleAccountCount - 1, 0)) * dividerHeight)
+        let naturalHeight = (CGFloat(accountCount) * rowHeight) + (CGFloat(max(accountCount - 1, 0)) * dividerHeight)
+        accountsHeight = min(240, naturalHeight)
     }
 
     let bannerHeight: CGFloat = showsBanner ? 52 : 0
-    let height = CGFloat(32 + 156 + 28 + 1 + 39) + bannerHeight + accountsHeight
-    return min(560, max(320, height))
-}
-
-func menuAccountsListMaxHeight(accountCount: Int) -> CGFloat {
-    guard accountCount > 0 else { return 0 }
-
-    let visibleAccountCount = min(accountCount, 4)
-    let rowHeight: CGFloat = 76
-    let dividerHeight: CGFloat = 5
-
-    return (CGFloat(visibleAccountCount) * rowHeight) + (CGFloat(max(visibleAccountCount - 1, 0)) * dividerHeight)
+    let baseHeight: CGFloat = 268 // 32 + 160 + 28 + 1 + 39 + 8 buffer
+    let height = baseHeight + bannerHeight + accountsHeight
+    return min(820, max(320, height))
 }
 
 struct RelativeTimestampText: View {
@@ -826,6 +833,7 @@ struct ActionStripView: View {
 
 struct AccountRowView: View {
     let account: BridgeAccountSummary
+    @State private var isHovered = false
 
     var body: some View {
         let tint = statusColor(for: account)
@@ -877,13 +885,17 @@ struct AccountRowView: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
-                .fill(account.isActive ? tint.opacity(0.10) : Color.clear)
+                .fill(account.isActive ? tint.opacity(0.08) : (isHovered ? Color.primary.opacity(0.04) : Color.clear))
                 .overlay(
                     RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
-                        .strokeBorder(account.isActive ? tint.opacity(0.18) : Color.clear)
+                        .strokeBorder(account.isActive ? tint.opacity(0.24) : (isHovered ? Color.primary.opacity(0.08) : Color.clear))
                 )
         )
         .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .animation(.easeOut(duration: 0.15), value: isHovered)
     }
 }
 
@@ -982,61 +994,148 @@ struct DetailSection<Content: View>: View {
     }
 }
 
+struct SheetActionButton: View {
+    let title: String
+    var systemImage: String?
+    var isPrimary = false
+    var isDisabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(isPrimary ? Color.white : Color.primary.opacity(0.86))
+            .frame(minWidth: isPrimary ? 112 : 92)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: CodexVisual.radiusSM, style: .continuous)
+                    .fill(isPrimary ? Color.accentColor.opacity(isDisabled ? 0.42 : 0.86) : Color.primary.opacity(0.065))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: CodexVisual.radiusSM, style: .continuous)
+                            .strokeBorder(isPrimary ? Color.white.opacity(0.18) : Color.primary.opacity(0.08))
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.58 : 1)
+    }
+}
+
 struct AddAccountSheet: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
     @State private var label = ""
     @State private var deviceAuth = false
 
+    private var trimmedLabel: String {
+        label.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 11) {
-                AppGlyph(size: 28)
-                VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top, spacing: 12) {
+                AppGlyph(size: 30)
+                    .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Add account")
                         .font(.title3.weight(.semibold))
                     Text("Create a named Codex login profile.")
-                        .font(.caption)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(CodexVisual.quietText)
                 }
             }
 
-            TextField("Label", text: $label)
-                .textFieldStyle(.roundedBorder)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Profile label")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CodexVisual.quietText)
 
-            PremiumPanel(cornerRadius: CodexVisual.radiusSM, padding: 12) {
-                HStack(alignment: .center, spacing: 10) {
-                    Image(systemName: deviceAuth ? "number.square.fill" : "safari.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(CodexVisual.neutralAccent)
+                TextField("Personal, work, client...", text: $label)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium))
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: CodexVisual.radiusSM, style: .continuous)
+                            .fill(Color.primary.opacity(0.045))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: CodexVisual.radiusSM, style: .continuous)
+                                    .strokeBorder(Color.primary.opacity(0.11))
+                            )
+                    )
+            }
+
+            Button {
+                deviceAuth.toggle()
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: CodexVisual.radiusSM, style: .continuous)
+                            .fill(CodexVisual.neutralAccent.opacity(0.10))
+                            .frame(width: 34, height: 34)
+                        Image(systemName: deviceAuth ? "number.square.fill" : "safari.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(CodexVisual.neutralAccent)
+                    }
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Toggle("Use device auth", isOn: $deviceAuth)
-                            .toggleStyle(.switch)
+                        Text("Use device auth")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.primary)
                         Text("Browser login is preferred. Use device auth if handoff fails.")
-                            .font(.caption)
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(CodexVisual.quietText)
+                            .lineLimit(2)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Toggle("", isOn: $deviceAuth)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .allowsHitTesting(false)
                 }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
+                        .fill(Color.primary.opacity(0.045))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: CodexVisual.radiusMD, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.09))
+                        )
+                )
             }
+            .buttonStyle(.plain)
 
             HStack {
                 Spacer()
-                Button("Cancel") {
+                SheetActionButton(title: "Cancel") {
                     model.isAddAccountSheetPresented = false
                 }
-                Button {
+                SheetActionButton(
+                    title: model.hasBlockingOperation ? "Adding" : "Add",
+                    systemImage: model.hasBlockingOperation ? nil : "plus",
+                    isPrimary: true,
+                    isDisabled: model.hasBlockingOperation || trimmedLabel.isEmpty
+                ) {
                     Task {
                         await model.addAccount(label: label, deviceAuth: deviceAuth)
                     }
-                } label: {
-                    Label("Add", systemImage: "plus")
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.hasBlockingOperation || label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            .padding(.top, 2)
         }
-        .padding(22)
-        .frame(width: 380)
+        .padding(24)
+        .frame(width: 430)
     }
 }
 
@@ -1046,48 +1145,53 @@ struct MenuContentView: View {
     var onAppear: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            MenuHeaderView()
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 13) {
+                MenuHeaderView()
 
-            if let banner = model.banner, banner.kind != .success {
-                BannerView(banner: banner)
-            }
+                if let banner = model.banner, banner.kind != .success {
+                    BannerView(banner: banner)
+                }
 
-            ActionStripView(openManagerWindow: openManagerWindow)
+                ActionStripView(openManagerWindow: openManagerWindow)
 
-            SectionDivider()
+                SectionDivider()
 
-            if model.accounts.isEmpty {
-                EmptyStateView(title: "No accounts", detail: "Use Add to connect a Codex login.")
-                    .padding(.vertical, 4)
-            } else {
-                ScrollView(.vertical) {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(model.accounts.enumerated()), id: \.element.id) { index, account in
-                            Button {
-                                if account.usage.status == .reloginRequired {
-                                    Task { await model.reloginAccount(id: account.id) }
-                                } else {
-                                    guard account.canSwitch else { return }
-                                    Task { await model.switchAccount(id: account.id) }
+                if model.accounts.isEmpty {
+                    EmptyStateView(title: "No accounts", detail: "Use Add to connect a Codex login.")
+                        .padding(.vertical, 4)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(Array(model.accounts.enumerated()), id: \.element.id) { index, account in
+                                Button {
+                                    if account.usage.status == .reloginRequired {
+                                        Task { await model.reloginAccount(id: account.id) }
+                                    } else {
+                                        guard account.canSwitch else { return }
+                                        Task { await model.switchAccount(id: account.id) }
+                                    }
+                                } label: {
+                                    AccountRowView(account: account)
                                 }
-                            } label: {
-                                AccountRowView(account: account)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(model.hasBlockingOperation || (!account.canSwitch && account.usage.status != .reloginRequired))
+                                .buttonStyle(.plain)
+                                .disabled(model.hasBlockingOperation || (!account.canSwitch && account.usage.status != .reloginRequired))
 
-                            if index < model.accounts.count - 1 {
-                                SectionDivider()
-                                    .padding(.horizontal, 4)
+                                if index < model.accounts.count - 1 {
+                                    SectionDivider()
+                                        .padding(.horizontal, 4)
+                                }
                             }
                         }
+                        .padding(.bottom, 2)
                     }
+                    .frame(maxHeight: 240)
                 }
-                .frame(maxHeight: menuAccountsListMaxHeight(accountCount: model.accounts.count), alignment: .top)
             }
+            .padding(16)
+
+            Spacer(minLength: 0)
         }
-        .padding(16)
         .frame(width: 384)
         .background(
             CodexVisual.surface

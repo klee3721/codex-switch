@@ -225,6 +225,7 @@ final class CodexBridgeClient: @unchecked Sendable {
         let commonPaths = [
             "\(NSHomeDirectory())/.bun/bin",
             "\(NSHomeDirectory())/.local/bin",
+            "/Applications/Codex.app/Contents/Resources",
             "/opt/homebrew/bin",
             "/opt/homebrew/sbin",
             "/usr/local/bin",

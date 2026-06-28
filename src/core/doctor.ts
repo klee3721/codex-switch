@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
+import { resolveCodexExecutable } from './codex-command'
 import { ensureSwitchDirs, getPaths, readState } from './store'
 import { extractAuthTokens, readAuthFile, validateChatGptAuth } from './codex-auth'
 import type { DoctorCheck, DoctorReport } from './types'
@@ -8,7 +9,7 @@ export async function runDoctor(): Promise<DoctorReport> {
   const checks: DoctorCheck[] = []
   const paths = getPaths()
 
-  const codexVersion = spawnSync('codex', ['--version'], {
+  const codexVersion = spawnSync(resolveCodexExecutable(), ['--version'], {
     encoding: 'utf8',
     stdio: 'pipe',
   })

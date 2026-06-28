@@ -75,6 +75,20 @@ func appLaunchPolicyKeepsDockHiddenForStatusBarOnlyApp() {
 }
 
 @Test
+func appConfiguresEditMenuForTextFieldShortcuts() throws {
+    let sourceURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/CodexSwitchMac/CodexSwitchMacApp.swift")
+    let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+    #expect(source.contains("configureMainMenu()"))
+    #expect(source.contains("#selector(NSText.paste(_:))"))
+    #expect(source.contains("keyEquivalent: \"v\""))
+}
+
+@Test
 func appBundleIsConfiguredAsStatusBarOnlyAgent() throws {
     let plistURL = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()

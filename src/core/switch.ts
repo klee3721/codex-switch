@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { resolveCodexExecutable } from './codex-command'
 import { chmodPrivateFile, copyPrivateFile, ensurePrivateDir, getPaths } from './store'
 import type { Account, SwitchResult } from './types'
 
@@ -71,7 +72,7 @@ export async function switchToAccount(account: Account): Promise<SwitchResult> {
   await copyPrivateFile(sourceAuth, paths.codexAuthPath)
   await restartCodexDesktopApp()
 
-  const statusResult = spawnSync('codex', ['login', 'status'], {
+  const statusResult = spawnSync(resolveCodexExecutable(), ['login', 'status'], {
     encoding: 'utf8',
     stdio: 'pipe',
   })

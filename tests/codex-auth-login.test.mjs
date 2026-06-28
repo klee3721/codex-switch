@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 const { runCodexChatGptLogin } = await import('../dist/core/codex-auth.js')
+const { resolveCodexExecutable } = await import('../dist/core/codex-command.js')
 
 function fakeCodexScript({ writeAuth }) {
   const authWrite = writeAuth
@@ -30,6 +31,22 @@ setInterval(() => {}, 1000)
 `
 }
 
+function fakeCodexShellScript() {
+  return `#!/bin/sh
+/bin/mkdir -p "$CODEX_HOME"
+/bin/cat > "$CODEX_HOME/auth.json" <<'JSON'
+{
+  "auth_mode": "chatgpt",
+  "tokens": {
+    "access_token": "access-token-from-login",
+    "refresh_token": "refresh-token-from-login"
+  }
+}
+JSON
+while true; do /bin/sleep 1; done
+`
+}
+
 async function withFakeCodex(script, callback) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-switch-login-test-'))
   const binDir = path.join(tempDir, 'bin')
@@ -52,6 +69,55 @@ async function withFakeCodex(script, callback) {
     await fs.rm(tempDir, { recursive: true, force: true })
   }
 }
+
+test('resolveCodexExecutable prefers explicit executable path when app PATH is stripped', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-switch-explicit-codex-test-'))
+  const codexPath = path.join(tempDir, 'codex')
+
+  try {
+    await fs.writeFile(codexPath, fakeCodexShellScript(), 'utf8')
+    await fs.chmod(codexPath, 0o755)
+
+    assert.equal(resolveCodexExecutable({ PATH: '', CODEX_SWITCH_CODEX_PATH: codexPath }), codexPath)
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('runCodexChatGptLogin uses explicit codex executable when PATH cannot find codex', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-switch-explicit-login-test-'))
+  const codexPath = path.join(tempDir, 'codex')
+  const profileDir = path.join(tempDir, 'profile')
+  const originalPath = process.env.PATH
+  const originalCodexPath = process.env.CODEX_SWITCH_CODEX_PATH
+
+  try {
+    await fs.writeFile(codexPath, fakeCodexShellScript(), 'utf8')
+    await fs.chmod(codexPath, 0o755)
+    process.env.PATH = ''
+    process.env.CODEX_SWITCH_CODEX_PATH = codexPath
+
+    await runCodexChatGptLogin(profileDir, {
+      stdio: 'pipe',
+      timeoutMs: 2_000,
+    })
+
+    const authJson = JSON.parse(await fs.readFile(path.join(profileDir, 'auth.json'), 'utf8'))
+    assert.equal(authJson.tokens.access_token, 'access-token-from-login')
+  } finally {
+    if (originalPath == null) {
+      delete process.env.PATH
+    } else {
+      process.env.PATH = originalPath
+    }
+    if (originalCodexPath == null) {
+      delete process.env.CODEX_SWITCH_CODEX_PATH
+    } else {
+      process.env.CODEX_SWITCH_CODEX_PATH = originalCodexPath
+    }
+    await fs.rm(tempDir, { recursive: true, force: true })
+  }
+})
 
 test('runCodexChatGptLogin completes when piped login writes auth but keeps running', async () => {
   await withFakeCodex(fakeCodexScript({ writeAuth: true }), async ({ profileDir }) => {

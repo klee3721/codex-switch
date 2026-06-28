@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        configureMainMenu()
         NSApplication.shared.setActivationPolicy(appLaunchActivationPolicy())
         if let icon = makeRuntimeAppIcon() {
             NSApplication.shared.applicationIconImage = icon
@@ -60,5 +61,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         managerWindow?.makeKeyAndOrderFront(nil)
         managerWindow?.orderFrontRegardless()
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    private func configureMainMenu() {
+        let mainMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        let editMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        mainMenu.addItem(editMenuItem)
+
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            NSMenuItem(
+                title: "Quit Codex Switch",
+                action: #selector(NSApplication.terminate(_:)),
+                keyEquivalent: "q"
+            )
+        )
+        appMenuItem.submenu = appMenu
+
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenuItem.submenu = editMenu
+
+        NSApplication.shared.mainMenu = mainMenu
     }
 }

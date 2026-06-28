@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { resolveCodexExecutable } from './codex-command'
 import { chmodPrivateFile, ensurePrivateDir, writePrivateFile } from './store'
 import type { AuthTokens } from './types'
 
@@ -191,7 +192,7 @@ export async function runCodexChatGptLogin(
   }
 
   await new Promise<void>((resolve, reject) => {
-    const result = spawn('codex', args, {
+    const result = spawn(resolveCodexExecutable(), args, {
       stdio: stdio === 'inherit' ? 'inherit' : ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
