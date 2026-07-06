@@ -5,7 +5,7 @@ Thanks for improving `codex-switch`.
 ## Setup
 
 ```bash
-git clone https://github.com/khanh21011999/codex-switch.git
+git clone https://github.com/klee3721/codex-switch.git
 cd codex-switch
 bun install
 ```

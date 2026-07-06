@@ -1,17 +1,17 @@
 {
-  "name": "@khanh21011999/codex-switch",
+  "name": "@klee3721/codex-switch",
   "version": "0.1.0",
   "description": "Terminal CLI to switch Codex ChatGPT accounts and track 5h/weekly usage",
   "type": "module",
   "license": "MIT",
-  "author": "Khanh Le Quoc",
-  "homepage": "https://github.com/khanh21011999/codex-switch#readme",
+  "author": "klee3721",
+  "homepage": "https://github.com/klee3721/codex-switch#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/khanh21011999/codex-switch.git"
+    "url": "git+https://github.com/klee3721/codex-switch.git"
   },
   "bugs": {
-    "url": "https://github.com/khanh21011999/codex-switch/issues"
+    "url": "https://github.com/klee3721/codex-switch/issues"
   },
   "keywords": [
     "codex",

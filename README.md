@@ -1,6 +1,6 @@
 # codex-switch
 
-[![CI](https://github.com/khanh21011999/codex-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh21011999/codex-switch/actions/workflows/ci.yml)
+[![CI](https://github.com/klee3721/codex-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/klee3721/codex-switch/actions/workflows/ci.yml)
 
 Terminal-first account switcher for Codex CLI with ChatGPT login profiles and usage limits.
 
@@ -22,14 +22,14 @@ Terminal-first account switcher for Codex CLI with ChatGPT login profiles and us
 ## Install
 
 ```bash
-bun add -g @khanh21011999/codex-switch
+bun add -g @klee3721/codex-switch
 codex-switch --help
 ```
 
 You can also run it without a persistent install:
 
 ```bash
-bunx @khanh21011999/codex-switch --help
+bunx @klee3721/codex-switch --help
 ```
 
 ## Commands
@@ -79,7 +79,7 @@ If the app cannot locate the repository root automatically, launch it with `CODE
 ## Local development
 
 ```bash
-git clone https://github.com/khanh21011999/codex-switch.git
+git clone https://github.com/klee3721/codex-switch.git
 cd codex-switch
 bun install
 bun run build
