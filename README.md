@@ -4,6 +4,8 @@
 
 Terminal-first account switcher for Codex CLI with ChatGPT login profiles and usage limits.
 
+Download the macOS app: [Codex-Switch-v0.1.0.dmg](https://github.com/klee3721/codex-switch/releases/download/v0.1.0/Codex-Switch-v0.1.0.dmg)
+
 ## What it does
 
 - Manage multiple ChatGPT-authenticated Codex profiles.
