@@ -1,10 +1,84 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1024" height="1024" rx="224" fill="#111111"/>
-  <path
-    d="M315 311C315 267.922 349.922 233 393 233H545C588.078 233 623 267.922 623 311V357C623 400.078 588.078 435 545 435H479C435.922 435 401 469.922 401 513V555C401 598.078 435.922 633 479 633H631C674.078 633 709 667.922 709 711V713C709 756.078 674.078 791 631 791H393C349.922 791 315 756.078 315 713V667"
-    stroke="#FFFFFF"
-    stroke-width="86"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
+  <defs>
+    <path id="tileShape" d="M512 104C674 104 754 104 815 140C845 158 870 183 887 214C922 276 922 356 922 512C922 668 922 748 887 810C870 841 845 866 815 884C754 920 674 920 512 920C350 920 270 920 209 884C179 866 154 841 137 810C102 748 102 668 102 512C102 356 102 276 137 214C154 183 179 158 209 140C270 104 350 104 512 104Z"/>
+
+    <linearGradient id="tileFill" x1="202" y1="128" x2="824" y2="910" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.42" stop-color="#F8FBFF"/>
+      <stop offset="0.74" stop-color="#EFF5FC"/>
+      <stop offset="1" stop-color="#E7ECF5"/>
+    </linearGradient>
+    <linearGradient id="tileRim" x1="162" y1="116" x2="852" y2="898" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.96"/>
+      <stop offset="0.46" stop-color="#D9E1ED" stop-opacity="0.46"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.88"/>
+    </linearGradient>
+    <radialGradient id="coolGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(724 774) rotate(-135) scale(640 520)">
+      <stop offset="0" stop-color="#DDF7FF" stop-opacity="0.68"/>
+      <stop offset="0.46" stop-color="#F2F6FF" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="warmGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(302 190) rotate(56) scale(520 420)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.98"/>
+      <stop offset="0.5" stop-color="#FFF9EE" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="trackFill" x1="262" y1="390" x2="774" y2="642" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#283B51"/>
+      <stop offset="0.52" stop-color="#172638"/>
+      <stop offset="1" stop-color="#0A1422"/>
+    </linearGradient>
+    <linearGradient id="trackGloss" x1="306" y1="414" x2="710" y2="574" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="knobFill" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(632 446) rotate(90) scale(178)">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.62" stop-color="#FAFCFF"/>
+      <stop offset="1" stop-color="#E5EBF4"/>
+    </radialGradient>
+    <filter id="tileShadow" x="58" y="58" width="908" height="908" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="26" stdDeviation="26" flood-color="#8A94A6" flood-opacity="0.24"/>
+      <feDropShadow dx="0" dy="-3" stdDeviation="5" flood-color="#FFFFFF" flood-opacity="0.96"/>
+    </filter>
+    <filter id="glassBlur" x="88" y="90" width="848" height="848" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+    <filter id="switchShadow" x="224" y="354" width="576" height="336" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#101925" flood-opacity="0.24"/>
+      <feDropShadow dx="0" dy="-3" stdDeviation="4" flood-color="#FFFFFF" flood-opacity="0.54"/>
+    </filter>
+    <filter id="knobShadow" x="506" y="382" width="258" height="258" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="-9" dy="11" stdDeviation="11" flood-color="#07101C" flood-opacity="0.28"/>
+    </filter>
+    <clipPath id="tileClip">
+      <use href="#tileShape"/>
+    </clipPath>
+  </defs>
+
+  <g filter="url(#tileShadow)">
+    <use href="#tileShape" fill="url(#tileFill)"/>
+    <use href="#tileShape" stroke="url(#tileRim)" stroke-width="4"/>
+  </g>
+
+  <g clip-path="url(#tileClip)">
+    <rect x="102" y="104" width="820" height="816" fill="url(#coolGlow)"/>
+    <rect x="102" y="104" width="820" height="816" fill="url(#warmGlow)"/>
+    <path d="M168 246C240 160 344 132 498 132H722C806 132 876 202 876 286V440C770 388 650 360 512 360C374 360 254 388 148 440V286C148 272 154 258 168 246Z" fill="#FFFFFF" opacity="0.42" filter="url(#glassBlur)"/>
+    <path d="M150 742C268 804 390 836 512 836C640 836 760 804 874 742V824C874 858 846 886 812 886H212C178 886 150 858 150 824V742Z" fill="#DDEBFF" opacity="0.22"/>
+    <path d="M146 512C250 466 374 442 512 442C650 442 774 466 878 512" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="30" stroke-linecap="round"/>
+  </g>
+
+  <use href="#tileShape" stroke="#FFFFFF" stroke-opacity="0.58" stroke-width="2"/>
+
+  <g filter="url(#switchShadow)">
+    <rect x="250" y="382" width="524" height="260" rx="130" fill="url(#trackFill)"/>
+    <rect x="272" y="404" width="480" height="216" rx="108" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="5"/>
+    <path d="M346 460C414 426 502 414 596 428" stroke="url(#trackGloss)" stroke-width="25" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#knobShadow)">
+    <circle cx="632" cy="512" r="102" fill="url(#knobFill)"/>
+    <circle cx="632" cy="512" r="100" stroke="#FFFFFF" stroke-opacity="0.94" stroke-width="5"/>
+  </g>
 </svg>

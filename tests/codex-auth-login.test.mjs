@@ -31,6 +31,27 @@ setInterval(() => {}, 1000)
 `
 }
 
+function fakeCodexBrowserLoginScript(loginUrl) {
+  return `#!/usr/bin/env node
+const fs = require('fs')
+const path = require('path')
+
+fs.mkdirSync(process.env.CODEX_HOME, { recursive: true })
+console.log('Open this URL to continue: ${loginUrl}')
+setTimeout(() => {
+  const authPath = path.join(process.env.CODEX_HOME, 'auth.json')
+  fs.writeFileSync(authPath, JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: {
+      access_token: 'access-token-from-browser-login',
+      refresh_token: 'refresh-token-from-browser-login'
+    }
+  }, null, 2) + '\\n', 'utf8')
+}, 100)
+setInterval(() => {}, 1000)
+`
+}
+
 function fakeCodexShellScript() {
   return `#!/bin/sh
 /bin/mkdir -p "$CODEX_HOME"
@@ -137,6 +158,43 @@ test('runCodexChatGptLogin completes when piped login writes auth but keeps runn
     if (process.platform !== 'win32') {
       assert.equal((await fs.stat(authPath)).mode & 0o777, 0o600)
     }
+  })
+})
+
+test('runCodexChatGptLogin opens browser URL emitted by piped browser login', async () => {
+  const loginUrl = 'https://auth.openai.com/oauth/authorize?client_id=codex-switch-test'
+
+  await withFakeCodex(fakeCodexBrowserLoginScript(loginUrl), async ({ profileDir }) => {
+    const openedUrls = []
+
+    await runCodexChatGptLogin(profileDir, {
+      stdio: 'pipe',
+      timeoutMs: 5_000,
+      browserOpener: (url) => {
+        openedUrls.push(url)
+      },
+    })
+
+    assert.deepEqual(openedUrls, [loginUrl])
+  })
+})
+
+test('runCodexChatGptLogin does not open browser URLs while in device auth mode', async () => {
+  const loginUrl = 'https://auth.openai.com/oauth/authorize?client_id=codex-switch-test'
+
+  await withFakeCodex(fakeCodexBrowserLoginScript(loginUrl), async ({ profileDir }) => {
+    const openedUrls = []
+
+    await runCodexChatGptLogin(profileDir, {
+      mode: 'device',
+      stdio: 'pipe',
+      timeoutMs: 5_000,
+      browserOpener: (url) => {
+        openedUrls.push(url)
+      },
+    })
+
+    assert.deepEqual(openedUrls, [])
   })
 })
 

@@ -13,9 +13,11 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BRIDGE_DIR="$RESOURCES_DIR/bridge"
 INFO_PLIST_SRC="$APP_ROOT/Info.plist"
 ICON_SVG_SRC="$APP_ROOT/Sources/CodexSwitchMac/Resources/app-icon.svg"
+LOGO_SVG_SRC="$APP_ROOT/Sources/CodexSwitchMac/Resources/app-logo.svg"
 ICON_WORK_DIR="$APP_ROOT/.icon-build"
 ICONSET_DIR="$ICON_WORK_DIR/AppIcon.iconset"
 ICON_PREVIEW="$ICON_WORK_DIR/app-icon.svg.png"
+LOGO_PREVIEW="$ICON_WORK_DIR/app-logo.svg.png"
 
 mkdir -p "$DIST_DIR"
 
@@ -60,13 +62,21 @@ JSON
 rm -rf "$ICON_WORK_DIR"
 mkdir -p "$ICONSET_DIR"
 qlmanage -t -s 1024 -o "$ICON_WORK_DIR" "$ICON_SVG_SRC" >/dev/null 2>&1
+qlmanage -t -s 1024 -o "$ICON_WORK_DIR" "$LOGO_SVG_SRC" >/dev/null 2>&1
 
 if [[ ! -f "$ICON_PREVIEW" ]]; then
   echo "Failed to render SVG app icon." >&2
   exit 1
 fi
+if [[ ! -f "$LOGO_PREVIEW" ]]; then
+  echo "Failed to render SVG app logo." >&2
+  exit 1
+fi
 
 cp "$ICON_SVG_SRC" "$RESOURCES_DIR/app-icon.svg"
+cp "$LOGO_SVG_SRC" "$RESOURCES_DIR/app-logo.svg"
+cp "$ICON_PREVIEW" "$RESOURCES_DIR/app-icon.png"
+cp "$LOGO_PREVIEW" "$RESOURCES_DIR/app-logo.png"
 cp "$ICON_PREVIEW" "$RESOURCES_DIR/AppGlyph.png"
 
 sips -z 16 16 "$ICON_PREVIEW" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
@@ -87,6 +97,9 @@ for required_file in \
   "$BRIDGE_DIR/bridge-cli.js" \
   "$BRIDGE_DIR/bridge.js" \
   "$BRIDGE_DIR/package.json" \
+  "$RESOURCES_DIR/app-icon.png" \
+  "$RESOURCES_DIR/app-logo.png" \
+  "$RESOURCES_DIR/AppGlyph.png" \
   "$RESOURCES_DIR/AppIcon.icns"; do
   if [[ ! -f "$required_file" ]]; then
     echo "Build artifact missing: $required_file" >&2

@@ -14,6 +14,7 @@ const MAX_LOGIN_OUTPUT_CHARS = 20_000
 
 export type CodexLoginMode = 'browser' | 'device'
 export type CodexLoginStdio = 'inherit' | 'pipe'
+export type CodexBrowserOpener = (url: string) => void
 
 function parseLastRefresh(value: unknown): Date | null {
   if (typeof value !== 'string' || !value.trim()) return null
@@ -161,6 +162,73 @@ function appendLoginOutput(current: string, chunk: unknown) {
   return next.length > MAX_LOGIN_OUTPUT_CHARS ? next.slice(-MAX_LOGIN_OUTPUT_CHARS) : next
 }
 
+function stripAnsiCodes(value: string) {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
+}
+
+function cleanUrlCandidate(value: string) {
+  return value.replace(/[)\].,;:]+$/g, '')
+}
+
+function isLikelyLoginUrl(value: string) {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return false
+
+    const host = url.hostname.toLowerCase()
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host === 'chatgpt.com' ||
+      host.endsWith('.chatgpt.com') ||
+      host === 'chat.openai.com' ||
+      host === 'openai.com' ||
+      host.endsWith('.openai.com')
+    )
+  } catch {
+    return false
+  }
+}
+
+function extractLoginUrls(output: string) {
+  const sanitized = stripAnsiCodes(output)
+  const matches = sanitized.match(/https?:\/\/[^\s<>"'`]+/g) ?? []
+  const urls: string[] = []
+
+  for (const match of matches) {
+    const candidate = cleanUrlCandidate(match)
+    if (candidate && isLikelyLoginUrl(candidate) && !urls.includes(candidate)) {
+      urls.push(candidate)
+    }
+  }
+
+  return urls
+}
+
+function openBrowserUrl(url: string) {
+  const command =
+    process.platform === 'darwin'
+      ? 'open'
+      : process.platform === 'win32'
+        ? 'cmd'
+        : 'xdg-open'
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url]
+
+  try {
+    const opener = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+    })
+    opener.on('error', () => {
+      // Failing to open the browser should not kill the login process.
+    })
+    opener.unref()
+  } catch {
+    // Best-effort browser launch only.
+  }
+}
+
 function formatLoginFailure(
   mode: CodexLoginMode,
   reason: string,
@@ -179,11 +247,12 @@ function formatLoginFailure(
 
 export async function runCodexChatGptLogin(
   profileDir: string,
-  options?: { mode?: CodexLoginMode; stdio?: CodexLoginStdio; timeoutMs?: number }
+  options?: { mode?: CodexLoginMode; stdio?: CodexLoginStdio; timeoutMs?: number; browserOpener?: CodexBrowserOpener }
 ) {
   const mode = options?.mode ?? 'browser'
   const stdio = options?.stdio ?? 'inherit'
   const timeoutMs = options?.timeoutMs ?? LOGIN_TIMEOUT_MS
+  const browserOpener = options?.browserOpener ?? openBrowserUrl
   await ensurePrivateDir(profileDir)
   const initialAuthSnapshot = await readValidAuthSnapshot(profileDir)
   const args = ['login', ...CHATGPT_LOGIN_CONFIG]
@@ -205,16 +274,23 @@ export async function runCodexChatGptLogin(
     let sentTermination = false
     let stdout = ''
     let stderr = ''
+    const openedLoginUrls = new Set<string>()
     let isPollingAuth = false
     let failureReason = 'The login command exited before writing valid auth.'
     let authPoll: NodeJS.Timeout | null = null
     let timeout: NodeJS.Timeout | null = null
     let forceKill: NodeJS.Timeout | null = null
+    let signalHandlersInstalled = false
 
     const cleanup = () => {
       if (authPoll) clearInterval(authPoll)
       if (timeout) clearTimeout(timeout)
       if (forceKill) clearTimeout(forceKill)
+      if (signalHandlersInstalled) {
+        process.off('SIGTERM', handleTerminationSignal)
+        process.off('SIGINT', handleTerminationSignal)
+        signalHandlersInstalled = false
+      }
     }
 
     const finish = (callback: () => void) => {
@@ -235,19 +311,44 @@ export async function runCodexChatGptLogin(
       }, 2_000)
     }
 
+    const handleTerminationSignal = () => {
+      failureReason = 'Login was canceled.'
+      stopLoginProcess()
+    }
+
     const hasNewValidAuth = async () => {
       const snapshot = await readValidAuthSnapshot(profileDir)
       return snapshot != null && snapshot !== initialAuthSnapshot
+    }
+
+    const openDiscoveredLoginUrls = () => {
+      if (mode !== 'browser') return
+
+      for (const url of extractLoginUrls(`${stdout}\n${stderr}`)) {
+        if (openedLoginUrls.has(url)) continue
+        openedLoginUrls.add(url)
+        try {
+          browserOpener(url)
+        } catch {
+          // Browser opener hooks are best-effort.
+        }
+      }
     }
 
     result.stdout?.setEncoding('utf8')
     result.stderr?.setEncoding('utf8')
     result.stdout?.on('data', (chunk) => {
       stdout = appendLoginOutput(stdout, chunk)
+      openDiscoveredLoginUrls()
     })
     result.stderr?.on('data', (chunk) => {
       stderr = appendLoginOutput(stderr, chunk)
+      openDiscoveredLoginUrls()
     })
+
+    process.once('SIGTERM', handleTerminationSignal)
+    process.once('SIGINT', handleTerminationSignal)
+    signalHandlersInstalled = true
 
     result.on('error', (error) => {
       finish(() => reject(new Error(`Failed to execute codex login: ${error.message}`)))

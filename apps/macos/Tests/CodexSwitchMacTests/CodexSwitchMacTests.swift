@@ -37,6 +37,31 @@ private func makeAccount(status: BridgeUsageHealth = .ok) -> BridgeAccountSummar
     )
 }
 
+private func makeUTCCalendar() -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    return calendar
+}
+
+private func utcDate(
+    year: Int = 2026,
+    month: Int = 7,
+    day: Int = 15,
+    hour: Int,
+    minute: Int,
+    second: Int
+) -> Date {
+    var components = DateComponents()
+    components.timeZone = TimeZone(secondsFromGMT: 0)!
+    components.year = year
+    components.month = month
+    components.day = day
+    components.hour = hour
+    components.minute = minute
+    components.second = second
+    return makeUTCCalendar().date(from: components)!
+}
+
 @Test
 func timeRemainingFormatsHoursAndMinutes() {
     let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -50,6 +75,33 @@ func timeRemainingFormatsExpiredAsNow() {
     let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     #expect(timeRemaining(until: now.addingTimeInterval(-30).timeIntervalSince1970, now: now) == "now")
+}
+
+@Test
+func nextHourlyRefreshDateUsesMinuteOneInCurrentHourWhenStillUpcoming() {
+    let calendar = makeUTCCalendar()
+    let now = utcDate(hour: 10, minute: 0, second: 30)
+    let expected = utcDate(hour: 10, minute: 1, second: 0)
+
+    #expect(nextHourlyRefreshDate(after: now, calendar: calendar) == expected)
+}
+
+@Test
+func nextHourlyRefreshDateUsesNextHourWhenMinuteOneHasPassed() {
+    let calendar = makeUTCCalendar()
+    let now = utcDate(hour: 10, minute: 1, second: 0)
+    let expected = utcDate(hour: 11, minute: 1, second: 0)
+
+    #expect(nextHourlyRefreshDate(after: now, calendar: calendar) == expected)
+}
+
+@Test
+func nextHourlyRefreshDateRollsOverToNextDay() {
+    let calendar = makeUTCCalendar()
+    let now = utcDate(hour: 23, minute: 59, second: 30)
+    let expected = utcDate(day: 16, hour: 0, minute: 1, second: 0)
+
+    #expect(nextHourlyRefreshDate(after: now, calendar: calendar) == expected)
 }
 
 @Test

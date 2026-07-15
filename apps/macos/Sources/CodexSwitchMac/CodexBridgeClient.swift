@@ -24,6 +24,80 @@ enum BridgeClientError: LocalizedError {
     }
 }
 
+private final class BridgeProcessState<Payload: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Payload, Error>?
+    private var process: Process?
+    private var didComplete = false
+    private var didCancel = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didCancel
+    }
+
+    func setContinuation(_ continuation: CheckedContinuation<Payload, Error>) {
+        lock.lock()
+        if didComplete {
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+
+        if didCancel, !didComplete {
+            didComplete = true
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func setProcess(_ process: Process) {
+        lock.lock()
+        let shouldTerminate = didCancel
+        self.process = process
+        lock.unlock()
+
+        if shouldTerminate {
+            process.terminate()
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        didCancel = true
+        let process = process
+        lock.unlock()
+
+        process?.terminate()
+        complete(.failure(CancellationError()))
+    }
+
+    func complete(_ result: Result<Payload, Error>) {
+        lock.lock()
+        guard !didComplete else {
+            lock.unlock()
+            return
+        }
+
+        didComplete = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+
+        switch result {
+        case .success(let payload):
+            continuation?.resume(returning: payload)
+        case .failure(let error):
+            continuation?.resume(throwing: error)
+        }
+    }
+}
+
 final class CodexBridgeClient: @unchecked Sendable {
     private struct BridgeCommand {
         let workingDirectory: URL
@@ -101,56 +175,73 @@ final class CodexBridgeClient: @unchecked Sendable {
 
     private func run<Payload: Decodable & Sendable>(_ arguments: [String], as type: Payload.Type) async throws -> Payload {
         let command = initialCommand
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            let stdout = Pipe()
-            let stderr = Pipe()
+        let state = BridgeProcessState<Payload>()
 
-            process.executableURL = command.executableURL
-            process.arguments = command.argumentsPrefix + arguments
-            if let workingDirectory = Self.validatedWorkingDirectory(command.workingDirectory) {
-                process.currentDirectoryURL = workingDirectory
-            }
-            process.environment = environment
-            process.standardOutput = stdout
-            process.standardError = stderr
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                state.setContinuation(continuation)
 
-            process.terminationHandler = { [decoder] process in
-                let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+                let process = Process()
+                let stdout = Pipe()
+                let stderr = Pipe()
+
+                process.executableURL = command.executableURL
+                process.arguments = command.argumentsPrefix + arguments
+                if let workingDirectory = Self.validatedWorkingDirectory(command.workingDirectory) {
+                    process.currentDirectoryURL = workingDirectory
+                }
+                process.environment = environment
+                process.standardOutput = stdout
+                process.standardError = stderr
+                state.setProcess(process)
+
+                process.terminationHandler = { [decoder] process in
+                    if state.isCancelled {
+                        state.complete(.failure(CancellationError()))
+                        return
+                    }
+
+                    let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+                    let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+
+                    do {
+                        if !stdoutData.isEmpty {
+                            let envelope = try decoder.decode(BridgeEnvelope<Payload>.self, from: stdoutData)
+                            if envelope.ok, let payload = envelope.data {
+                                state.complete(.success(payload))
+                                return
+                            }
+
+                            if let bridgeError = envelope.error {
+                                throw BridgeClientError.transport(bridgeError.message)
+                            }
+                        }
+
+                        let stderrText = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        if !stderrText.isEmpty {
+                            throw BridgeClientError.transport(stderrText)
+                        }
+
+                        throw BridgeClientError.transport("Bridge command failed with exit code \(process.terminationStatus).")
+                    } catch let error as BridgeClientError {
+                        state.complete(.failure(error))
+                    } catch {
+                        let raw = String(data: stdoutData, encoding: .utf8) ?? "<empty>"
+                        state.complete(.failure(BridgeClientError.decoding("Failed to decode bridge response: \(raw)")))
+                    }
+                }
 
                 do {
-                    if !stdoutData.isEmpty {
-                        let envelope = try decoder.decode(BridgeEnvelope<Payload>.self, from: stdoutData)
-                        if envelope.ok, let payload = envelope.data {
-                            continuation.resume(returning: payload)
-                            return
-                        }
-
-                        if let bridgeError = envelope.error {
-                            throw BridgeClientError.transport(bridgeError.message)
-                        }
+                    try process.run()
+                    if state.isCancelled {
+                        process.terminate()
                     }
-
-                    let stderrText = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    if !stderrText.isEmpty {
-                        throw BridgeClientError.transport(stderrText)
-                    }
-
-                    throw BridgeClientError.transport("Bridge command failed with exit code \(process.terminationStatus).")
-                } catch let error as BridgeClientError {
-                    continuation.resume(throwing: error)
                 } catch {
-                    let raw = String(data: stdoutData, encoding: .utf8) ?? "<empty>"
-                    continuation.resume(throwing: BridgeClientError.decoding("Failed to decode bridge response: \(raw)"))
+                    state.complete(.failure(BridgeClientError.transport("Failed to launch bridge: \(error.localizedDescription)")))
                 }
             }
-
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: BridgeClientError.transport("Failed to launch bridge: \(error.localizedDescription)"))
-            }
+        } onCancel: {
+            state.cancel()
         }
     }
 

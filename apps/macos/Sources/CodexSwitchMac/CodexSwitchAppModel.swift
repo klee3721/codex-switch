@@ -19,6 +19,25 @@ struct AppOperation {
     let subtitle: String?
 }
 
+func nextHourlyRefreshDate(after now: Date, calendar: Calendar = .current) -> Date {
+    var currentHour = calendar.dateComponents([.year, .month, .day, .hour], from: now)
+    currentHour.minute = 1
+    currentHour.second = 0
+    currentHour.nanosecond = 0
+
+    if let candidate = calendar.date(from: currentHour), candidate > now {
+        return candidate
+    }
+
+    let nextHourDate = calendar.date(byAdding: .hour, value: 1, to: now) ?? now.addingTimeInterval(60 * 60)
+    var nextHour = calendar.dateComponents([.year, .month, .day, .hour], from: nextHourDate)
+    nextHour.minute = 1
+    nextHour.second = 0
+    nextHour.nanosecond = 0
+
+    return calendar.date(from: nextHour) ?? nextHourDate
+}
+
 @MainActor
 final class CodexSwitchAppModel: ObservableObject {
     @Published private(set) var status: BridgeStatusPayload?
@@ -32,7 +51,7 @@ final class CodexSwitchAppModel: ObservableObject {
     @Published private(set) var openAtLogin = false
 
     let bridge: CodexBridgeClient?
-    private var refreshTimer: AnyCancellable?
+    private var refreshTimer: Timer?
 
     init() {
         do {
@@ -86,6 +105,17 @@ final class CodexSwitchAppModel: ObservableObject {
 
     func openAddAccountFlow() {
         isAddAccountSheetPresented = true
+    }
+
+    func dismissAddAccountFlow() {
+        isAddAccountSheetPresented = false
+    }
+
+    func cancelAddAccountFlow() async {
+        isAddAccountSheetPresented = false
+        currentOperation = nil
+        await loadCachedStatus(showSuccessBanner: false)
+        banner = BannerState(kind: .info, message: "Add account canceled.")
     }
 
     func refreshOpenAtLoginStatus() {
@@ -236,6 +266,10 @@ final class CodexSwitchAppModel: ObservableObject {
             } else {
                 banner = BannerState(kind: .success, message: result.message)
             }
+        } catch is CancellationError {
+            await loadCachedStatus(showSuccessBanner: false)
+            isAddAccountSheetPresented = false
+            banner = BannerState(kind: .info, message: "Add account canceled.")
         } catch {
             banner = BannerState(kind: .error, message: error.localizedDescription)
         }
@@ -331,13 +365,22 @@ final class CodexSwitchAppModel: ObservableObject {
     }
 
     private func startTimers() {
-        refreshTimer = Timer.publish(every: 120, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
+        scheduleNextHourlyRefresh()
+    }
+
+    private func scheduleNextHourlyRefresh(from now: Date = Date()) {
+        refreshTimer?.invalidate()
+
+        let fireDate = nextHourlyRefreshDate(after: now)
+        let timer = Timer(fire: fireDate, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                Task {
-                    await self.refreshActive(showSuccessBanner: false, reason: "Refreshing active account…")
-                }
+                await self.refreshActive(showSuccessBanner: false, reason: "Scheduled hourly refresh…")
+                self.scheduleNextHourlyRefresh()
             }
+        }
+
+        refreshTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 }

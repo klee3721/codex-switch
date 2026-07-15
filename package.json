@@ -1,6 +1,6 @@
 {
   "name": "@klee3721/codex-switch",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Terminal CLI to switch Codex ChatGPT accounts and track 5h/weekly usage",
   "type": "module",
   "license": "MIT",
@@ -45,7 +45,8 @@
     "pack:dry-run": "bun pm pack --dry-run",
     "prepack": "bun run build",
     "build:macos": "swift build --package-path apps/macos",
-    "build:macos:app": "bash scripts/build-macos-app.sh"
+    "build:macos:app": "bash scripts/build-macos-app.sh",
+    "build:macos:dmg": "bash scripts/build-macos-dmg.sh"
   },
   "dependencies": {
     "blessed": "^0.1.81",

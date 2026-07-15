@@ -2,8 +2,6 @@ import AppKit
 import SwiftUI
 
 private let criticalUsageThreshold = 5.0
-private let appGlyphBackground = Color.primary
-private let appGlyphForeground = Color(nsColor: .windowBackgroundColor)
 
 private enum CodexVisual {
     static let radiusSM: CGFloat = 10
@@ -84,7 +82,37 @@ struct SectionDivider: View {
 }
 
 @MainActor
+private func bundledImage(named lookupNames: [String]) -> NSImage? {
+    for name in lookupNames {
+        if let image = NSImage(named: name) {
+            return image
+        }
+    }
+
+    for bundle in [Bundle.main, Bundle.module] {
+        for name in lookupNames {
+            if let url = bundle.url(forResource: name, withExtension: "png"),
+               let image = NSImage(contentsOf: url) {
+                return image
+            }
+        }
+    }
+
+    return nil
+}
+
+@MainActor
+private func bundledAppIconImage() -> NSImage? {
+    bundledImage(named: ["app-icon", "AppGlyph"])
+}
+
+@MainActor
 func makeRuntimeAppIcon(size: CGFloat = 512) -> NSImage? {
+    if let image = bundledAppIconImage()?.copy() as? NSImage {
+        image.size = NSSize(width: size, height: size)
+        return image
+    }
+
     let renderer = ImageRenderer(content:
         AppGlyph(size: size)
             .padding(size * 0.08)
@@ -97,49 +125,88 @@ func makeRuntimeAppIcon(size: CGFloat = 512) -> NSImage? {
     return nil
 }
 
-struct AppGlyphMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        let scaleX = rect.width / 1024
-        let scaleY = rect.height / 1024
-
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.minX + x * scaleX, y: rect.minY + y * scaleY)
-        }
-
-        return Path { path in
-            path.move(to: point(315, 311))
-            path.addCurve(to: point(393, 233), control1: point(315, 267.922), control2: point(349.922, 233))
-            path.addLine(to: point(545, 233))
-            path.addCurve(to: point(623, 311), control1: point(588.078, 233), control2: point(623, 267.922))
-            path.addLine(to: point(623, 357))
-            path.addCurve(to: point(545, 435), control1: point(623, 400.078), control2: point(588.078, 435))
-            path.addLine(to: point(479, 435))
-            path.addCurve(to: point(401, 513), control1: point(435.922, 435), control2: point(401, 469.922))
-            path.addLine(to: point(401, 555))
-            path.addCurve(to: point(479, 633), control1: point(401, 598.078), control2: point(435.922, 633))
-            path.addLine(to: point(631, 633))
-            path.addCurve(to: point(709, 711), control1: point(674.078, 633), control2: point(709, 667.922))
-            path.addLine(to: point(709, 713))
-            path.addCurve(to: point(631, 791), control1: point(709, 756.078), control2: point(674.078, 791))
-            path.addLine(to: point(393, 791))
-            path.addCurve(to: point(315, 713), control1: point(349.922, 791), control2: point(315, 756.078))
-            path.addLine(to: point(315, 667))
-        }
-    }
-}
-
 struct AppGlyph: View {
     var size: CGFloat = 13
 
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .fill(appGlyphBackground)
+    private var trackHeight: CGFloat {
+        max(size * 0.52, 5)
+    }
 
-            AppGlyphMark()
-                .stroke(appGlyphForeground, style: StrokeStyle(lineWidth: size * 0.112, lineCap: .round, lineJoin: .round))
-                .padding(size * 0.12)
+    private var knobSize: CGFloat {
+        max(trackHeight * 0.78, 4)
+    }
+
+    private var strokeWidth: CGFloat {
+        max(size * 0.045, 0.65)
+    }
+
+    private var trackFill: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color(red: 0.15, green: 0.22, blue: 0.30),
+                Color(red: 0.08, green: 0.13, blue: 0.20),
+                Color(red: 0.04, green: 0.08, blue: 0.13),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var trackHighlight: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.26),
+                Color.white.opacity(0),
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    private var track: some View {
+        Capsule()
+            .fill(trackFill)
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.white.opacity(0.15), lineWidth: strokeWidth)
+            )
+            .overlay(
+                Capsule()
+                    .inset(by: strokeWidth * 1.8)
+                    .strokeBorder(Color.white.opacity(0.22), lineWidth: max(strokeWidth * 0.55, 0.5))
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: max(size * 0.10, 1), x: 0, y: max(size * 0.055, 0.5))
+    }
+
+    private var highlight: some View {
+        Capsule()
+            .stroke(trackHighlight, lineWidth: max(size * 0.08, 1.1))
+            .padding(.horizontal, trackHeight * 0.20)
+            .padding(.vertical, trackHeight * 0.28)
+    }
+
+    private var knob: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white)
+
+            Circle()
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.32))
+
+            Circle()
+                .strokeBorder(Color.white.opacity(0.92), lineWidth: max(strokeWidth * 0.85, 0.55))
         }
+        .frame(width: knobSize, height: knobSize)
+        .shadow(color: Color.black.opacity(0.22), radius: max(size * 0.075, 0.8), x: -max(size * 0.025, 0.25), y: max(size * 0.045, 0.45))
+        .padding(.trailing, max(trackHeight * 0.11, 1))
+    }
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            track
+            highlight
+            knob
+        }
+        .frame(width: size, height: trackHeight)
         .frame(width: size, height: size)
     }
 }
@@ -1024,9 +1091,14 @@ struct AddAccountSheet: View {
     @EnvironmentObject private var model: CodexSwitchAppModel
     @State private var label = ""
     @State private var deviceAuth = false
+    @State private var addTask: Task<Void, Never>?
 
     private var trimmedLabel: String {
         label.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isAdding: Bool {
+        addTask != nil || model.hasBlockingOperation
     }
 
     var body: some View {
@@ -1108,16 +1180,27 @@ struct AddAccountSheet: View {
             HStack {
                 Spacer()
                 SheetActionButton(title: "Cancel") {
-                    model.isAddAccountSheetPresented = false
+                    if let addTask {
+                        addTask.cancel()
+                        self.addTask = nil
+                        Task {
+                            await model.cancelAddAccountFlow()
+                        }
+                    } else {
+                        model.dismissAddAccountFlow()
+                    }
                 }
                 SheetActionButton(
-                    title: model.hasBlockingOperation ? "Adding" : "Add",
-                    systemImage: model.hasBlockingOperation ? nil : "plus",
+                    title: isAdding ? "Adding" : "Add",
+                    systemImage: isAdding ? nil : "plus",
                     isPrimary: true,
-                    isDisabled: model.hasBlockingOperation || trimmedLabel.isEmpty
+                    isDisabled: isAdding || trimmedLabel.isEmpty
                 ) {
-                    Task {
+                    addTask = Task {
                         await model.addAccount(label: label, deviceAuth: deviceAuth)
+                        await MainActor.run {
+                            addTask = nil
+                        }
                     }
                 }
                 .keyboardShortcut(.defaultAction)
@@ -1126,6 +1209,7 @@ struct AddAccountSheet: View {
         }
         .padding(24)
         .frame(width: 430)
+        .interactiveDismissDisabled(isAdding)
     }
 }
 
